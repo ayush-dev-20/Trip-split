@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useLogin } from '@/hooks/useAuth';
-import { Eye, EyeOff, Mail, Lock, Plane } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { useThemeStore } from '@/stores/themeStore';
+import logoDark from '@/assets/logo/tripsplit-dark-64.svg';
+import logoLight from '@/assets/logo/tripsplit-light-96.svg';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -10,6 +13,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 
 export default function LoginPage() {
   const login = useLogin();
+  const { resolvedTheme } = useThemeStore();
+  const isDark = resolvedTheme() === 'dark';
+  const iconSrc = isDark ? logoDark : logoLight;
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -23,10 +30,8 @@ export default function LoginPage() {
     <div className="space-y-8">
       {/* Mobile logo */}
       <div className="flex items-center gap-2.5 lg:hidden">
-        <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-primary text-primary-foreground">
-          <Plane className="h-5 w-5" />
-        </div>
-        <span className="text-xl font-bold">TripSplit</span>
+        <img src={iconSrc} alt="TripSplit" className="h-9 w-9" />
+        <span className="text-xl font-bold tracking-tight">TripSplit</span>
       </div>
 
       <Card className="border-0 shadow-none bg-transparent">
