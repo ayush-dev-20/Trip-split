@@ -1,0 +1,557 @@
+// ─────────────────────────────────────────────────────
+// 🧾 SaaS Trip Expense Tracker — Prisma Schema
+// ─────────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────
+// ENUMS
+// ──────────────────────────────────
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum TripStatus {
+  UPCOMING
+  ACTIVE
+  COMPLETED
+  ARCHIVED
+}
+
+enum SplitType {
+  EQUAL
+  PERCENTAGE
+  EXACT
+  SHARES
+}
+
+enum ExpenseCategory {
+  FOOD
+  TRANSPORT
+  ACCOMMODATION
+  ACTIVITIES
+  SHOPPING
+  ENTERTAINMENT
+  HEALTH
+  COMMUNICATION
+  FEES
+  MISCELLANEOUS
+}
+
+enum SubscriptionTier {
+  FREE
+  PRO
+  TEAM
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+  INCOMPLETE
+}
+
+enum NotificationType {
+  EXPENSE_ADDED
+  EXPENSE_UPDATED
+  EXPENSE_DELETED
+  SETTLEMENT_REQUEST
+  SETTLEMENT_COMPLETED
+  TRIP_INVITE
+  GROUP_INVITE
+  TRIP_STATUS_CHANGED
+  PAYMENT_REMINDER
+  BUDGET_ALERT
+  MENTION
+  POLL_CREATED
+  CHAT_MESSAGE
+  AI_INSIGHT
+}
+
+enum SettlementStatus {
+  PENDING
+  SETTLED
+  DISPUTED
+}
+
+enum PollStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  SETTLE
+  INVITE
+  JOIN
+  LEAVE
+  ROLE_CHANGE
+  SUBSCRIPTION_CHANGE
+}
+
+// ──────────────────────────────────
+// USER & AUTH
+// ──────────────────────────────────
+
+model User {
+  id                String   @id @default(uuid())
+  email             String   @unique
+  passwordHash      String?  // null if OAuth-only
+  name              String
+  avatarUrl         String?
+  preferredCurrency String   @default("USD")
+  googleId          String?  @unique
+  emailVerified     Boolean  @default(false)
+  isActive          Boolean  @default(true)
+  onboardingDone    Boolean  @default(false)
+  timezone          String   @default("UTC")
+  locale            String   @default("en")
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Notification preferences
+  notifyEmail     Boolean @default(true)
+  notifyInApp     Boolean @default(true)
+  notifyPush      Boolean @default(true)
+
+  // Relations
+  subscription      Subscription?
+  groupMemberships  GroupMember[]
+  tripMemberships   TripMember[]
+  expensesPaid      Expense[]         @relation("PaidByUser")
+  expenseSplits     ExpenseSplit[]
+  settlementsFrom   Settlement[]      @relation("SettlementFrom")
+  settlementsTo     Settlement[]      @relation("SettlementTo")
+  comments          Comment[]
+  reactions         Reaction[]
+  notifications     Notification[]
+  activityLogs      ActivityLog[]     @relation("ActivityUser")
+  chatMessages      ChatMessage[]
+  pollVotes         PollVote[]
+  tripNotes         TripNote[]
+  feedPosts         TripFeedPost[]
+  refreshTokens     RefreshToken[]
+  auditLogs         AuditLog[]
+
+  @@index([email])
+  @@index([googleId])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revoked   Boolean  @default(false)
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ──────────────────────────────────
+// SUBSCRIPTION / BILLING
+// ──────────────────────────────────
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String             @unique
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tier                 SubscriptionTier   @default(FREE)
+  status               SubscriptionStatus @default(ACTIVE)
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  trialEndsAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+}
+
+// ──────────────────────────────────
+// GROUPS
+// ──────────────────────────────────
+
+model Group {
+  id              String        @id @default(uuid())
+  name            String
+  description     String?
+  coverImageUrl   String?
+  defaultCurrency String        @default("USD")
+  inviteCode      String        @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  members GroupMember[]
+  trips   Trip[]
+
+  @@index([inviteCode])
+}
+
+model GroupMember {
+  id       String   @id @default(uuid())
+  groupId  String
+  group    Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     Role     @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@unique([groupId, userId])
+  @@index([groupId])
+  @@index([userId])
+}
+
+// ──────────────────────────────────
+// TRIPS
+// ──────────────────────────────────
+
+model Trip {
+  id            String     @id @default(uuid())
+  name          String
+  description   String?
+  destination   String?
+  coverImageUrl String?
+  startDate     DateTime
+  endDate       DateTime
+  status        TripStatus @default(UPCOMING)
+  budget        Float?     // total budget in base currency
+  budgetCurrency String    @default("USD")
+  groupId       String?
+  group         Group?     @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  inviteCode    String     @unique
+  isPublic      Boolean    @default(false) // shareable read-only page
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  members      TripMember[]
+  expenses     Expense[]
+  settlements  Settlement[]
+  chatMessages ChatMessage[]
+  polls        Poll[]
+  tripNotes    TripNote[]
+  feedPosts    TripFeedPost[]
+  activityLogs ActivityLog[]
+  checkpoints  Checkpoint[]
+
+  @@index([groupId])
+  @@index([inviteCode])
+  @@index([status])
+}
+
+model TripMember {
+  id       String   @id @default(uuid())
+  tripId   String
+  trip     Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role     Role     @default(MEMBER)
+  joinedAt DateTime @default(now())
+
+  @@unique([tripId, userId])
+  @@index([tripId])
+  @@index([userId])
+}
+
+// ──────────────────────────────────
+// EXPENSES
+// ──────────────────────────────────
+
+model Expense {
+  id              String          @id @default(uuid())
+  title           String
+  description     String?
+  amount          Float
+  currency        String          @default("USD")
+  exchangeRate    Float           @default(1.0)  // rate to trip base currency
+  baseAmount      Float           // amount converted to trip base currency
+  category        ExpenseCategory @default(MISCELLANEOUS)
+  date            DateTime
+  splitType       SplitType       @default(EQUAL)
+  isRecurring     Boolean         @default(false)
+  recurringPattern String?        // cron-like pattern
+  receiptUrl      String?
+  tripId          String
+  trip            Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  paidById        String
+  paidBy          User            @relation("PaidByUser", fields: [paidById], references: [id])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  splits    ExpenseSplit[]
+  comments  Comment[]
+  reactions Reaction[]
+  receipts  Receipt[]
+
+  @@index([tripId])
+  @@index([paidById])
+  @@index([category])
+  @@index([date])
+}
+
+model ExpenseSplit {
+  id        String  @id @default(uuid())
+  expenseId String
+  expense   Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount    Float   // the actual amount this user owes
+  shares    Float?  // number of shares (for SHARES split)
+  percentage Float? // percentage (for PERCENTAGE split)
+  isPaid    Boolean @default(false)
+
+  @@unique([expenseId, userId])
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model Receipt {
+  id         String  @id @default(uuid())
+  expenseId  String
+  expense    Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  imageUrl   String
+  ocrData    Json?   // Extracted AI data { amount, vendor, date, category }
+  createdAt  DateTime @default(now())
+
+  @@index([expenseId])
+}
+
+// ──────────────────────────────────
+// SETTLEMENTS
+// ──────────────────────────────────
+
+model Settlement {
+  id          String           @id @default(uuid())
+  tripId      String
+  trip        Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  fromUserId  String
+  fromUser    User             @relation("SettlementFrom", fields: [fromUserId], references: [id])
+  toUserId    String
+  toUser      User             @relation("SettlementTo", fields: [toUserId], references: [id])
+  amount      Float
+  currency    String           @default("USD")
+  status      SettlementStatus @default(PENDING)
+  note        String?
+  settledAt   DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([tripId])
+  @@index([fromUserId])
+  @@index([toUserId])
+  @@index([status])
+}
+
+// ──────────────────────────────────
+// COMMENTS & REACTIONS
+// ──────────────────────────────────
+
+model Comment {
+  id        String   @id @default(uuid())
+  content   String
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mentions  String[] // array of user IDs mentioned via @
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([expenseId])
+  @@index([userId])
+}
+
+model Reaction {
+  id        String   @id @default(uuid())
+  emoji     String   // e.g., "😂", "🍕", "👍"
+  expenseId String
+  expense   Expense  @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([expenseId, userId, emoji])
+  @@index([expenseId])
+}
+
+// ──────────────────────────────────
+// SOCIAL: CHAT, POLLS, NOTES, FEED
+// ──────────────────────────────────
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  content   String
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  replyToId String?
+  replyTo   ChatMessage? @relation("MessageReplies", fields: [replyToId], references: [id])
+  replies   ChatMessage[] @relation("MessageReplies")
+  createdAt DateTime @default(now())
+
+  @@index([tripId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Poll {
+  id          String     @id @default(uuid())
+  question    String
+  tripId      String
+  trip        Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  createdById String
+  status      PollStatus @default(ACTIVE)
+  expiresAt   DateTime?
+  createdAt   DateTime   @default(now())
+
+  options PollOption[]
+
+  @@index([tripId])
+}
+
+model PollOption {
+  id     String @id @default(uuid())
+  text   String
+  pollId String
+  poll   Poll   @relation(fields: [pollId], references: [id], onDelete: Cascade)
+
+  votes PollVote[]
+
+  @@index([pollId])
+}
+
+model PollVote {
+  id       String     @id @default(uuid())
+  optionId String
+  option   PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, userId])
+  @@index([optionId])
+}
+
+model TripNote {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isPinned  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([tripId])
+}
+
+model TripFeedPost {
+  id        String   @id @default(uuid())
+  content   String?
+  imageUrl  String?
+  tripId    String
+  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([tripId])
+  @@index([createdAt])
+}
+
+// ──────────────────────────────────
+// NOTIFICATIONS & ACTIVITY
+// ──────────────────────────────────
+
+model Notification {
+  id        String           @id @default(uuid())
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?            // extra payload { tripId, expenseId, etc }
+  isRead    Boolean          @default(false)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  action    String   // human readable action description
+  type      AuditAction
+  entityType String  // "expense", "trip", "settlement", etc.
+  entityId  String
+  metadata  Json?
+  tripId    String?
+  trip      Trip?    @relation(fields: [tripId], references: [id], onDelete: SetNull)
+  userId    String
+  user      User     @relation("ActivityUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([tripId])
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+// ──────────────────────────────────
+// AUDIT LOG (immutable)
+// ──────────────────────────────────
+
+model AuditLog {
+  id         String      @id @default(uuid())
+  action     AuditAction
+  entityType String
+  entityId   String
+  before     Json?
+  after      Json?
+  userId     String
+  user       User        @relation(fields: [userId], references: [id])
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime    @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ──────────────────────────────────
+// CHECKPOINTS (places to visit)
+// ──────────────────────────────────
+
+model Checkpoint {
+  id            String   @id @default(uuid())
+  tripId        String
+  trip          Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  category      String?  // e.g. "sightseeing", "food", "activity", "shopping"
+  estimatedCost Float?
+  day           Int?     // day number in the trip (1-based)
+  sortOrder     Int      @default(0)
+  isVisited     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([tripId])
+  @@index([tripId, day])
+}

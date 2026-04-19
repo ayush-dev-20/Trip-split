@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <title>TripSplit Icon — Dark 200×200</title>
+  <defs>
+    <clipPath id="rr"><rect x="0" y="0" width="200" height="200" rx="46"/></clipPath>
+    <clipPath id="pin"><path d="M100 18 C64 18 38 44 38 76 C38 108 70 142 100 170 C130 142 162 108 162 76 C162 44 136 18 100 18 Z"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="200" height="200" rx="46" fill="#18181b"/>
+  <g clip-path="url(#rr)">
+    <g clip-path="url(#pin)">
+      <rect x="0" y="0" width="97" height="200" fill="#818cf8"/>
+      <rect x="97" y="0" width="6" height="200" fill="#18181b"/>
+      <rect x="103" y="0" width="97" height="200" fill="#FCD34D"/>
+    </g>
+    <path d="M100 18 C64 18 38 44 38 76 C38 108 70 142 100 170 C130 142 162 108 162 76 C162 44 136 18 100 18 Z" fill="none" stroke="#18181b" stroke-width="4"/>
+    <circle cx="100" cy="73" r="20" fill="#18181b"/>
+    <polygon points="94,75 94,172 100,182 106,172 106,75" fill="#18181b"/>
+  </g>
+</svg>
