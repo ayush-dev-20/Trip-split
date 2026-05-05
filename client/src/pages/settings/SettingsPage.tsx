@@ -1,5 +1,6 @@
 import { useAuthStore } from '@/stores/authStore';
-import { useUpdateProfile, useChangePassword } from '@/hooks/useAuth';
+import { useUpdateProfile } from '@/hooks/useAuth';
+import { useClerk } from '@clerk/clerk-react';
 import { useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { User, Mail, DollarSign, Bell, Shield } from 'lucide-react';
@@ -17,29 +18,17 @@ import { Link } from 'react-router';
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
-  const changePassword = useChangePassword();
+  const { openUserProfile } = useClerk();
 
   const [name, setName] = useState(user?.name ?? '');
   const [currency, setCurrency] = useState(user?.preferredCurrency ?? 'USD');
   const [emailNotif, setEmailNotif] = useState(user?.emailNotifications ?? true);
   const [pushNotif, setPushNotif] = useState(user?.pushNotifications ?? true);
   const [weeklyReport, setWeeklyReport] = useState(user?.weeklyReport ?? true);
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [passwordSuccess, setPasswordSuccess] = useState(false);
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     updateProfile.mutate({ name, preferredCurrency: currency, emailNotifications: emailNotif, pushNotifications: pushNotif, weeklyReport });
-  };
-
-  const handleChangePassword = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPasswordSuccess(false);
-    changePassword.mutate(
-      { currentPassword, newPassword },
-      { onSuccess: () => { setPasswordSuccess(true); setCurrentPassword(''); setNewPassword(''); } }
-    );
   };
 
   return (
@@ -121,39 +110,20 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      {/* Change Password */}
-      <form onSubmit={handleChangePassword}>
-        <Card>
-          <CardContent className="p-6 space-y-5">
-            <h2 className="text-lg font-semibold flex items-center gap-2">
-              <Shield className="h-5 w-5" /> Change Password
-            </h2>
-
-            {passwordSuccess && (
-              <Alert>
-                <AlertDescription>Password changed successfully!</AlertDescription>
-              </Alert>
-            )}
-            {changePassword.isError && (
-              <Alert variant="destructive">
-                <AlertDescription>{(changePassword.error as Error)?.message || 'Failed to change password'}</AlertDescription>
-              </Alert>
-            )}
-
-            <div>
-              <Label>Current Password</Label>
-              <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} required className="mt-1.5" />
-            </div>
-            <div>
-              <Label>New Password</Label>
-              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min. 8 characters" required className="mt-1.5" />
-            </div>
-            <Button type="submit" variant="secondary" disabled={changePassword.isPending}>
-              {changePassword.isPending ? 'Changing...' : 'Change Password'}
-            </Button>
-          </CardContent>
-        </Card>
-      </form>
+      {/* Security — managed by Clerk */}
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Shield className="h-5 w-5" /> Security
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Password, two-factor authentication, and connected accounts are managed through your Clerk account portal.
+          </p>
+          <Button variant="secondary" type="button" onClick={() => openUserProfile()}>
+            Manage Security Settings
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Subscription Badge */}
       <Card>

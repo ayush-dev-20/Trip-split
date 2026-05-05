@@ -13,6 +13,7 @@
     "db:migrate": "cd server && npx prisma migrate dev",
     "db:seed": "cd server && npx prisma db seed",
     "db:studio": "cd server && npx prisma studio",
+    "db:clean": "NODE_PATH=server/node_modules node scripts/db-clean.js",
     "lint": "concurrently \"cd server && npm run lint\" \"cd client && npm run lint\"",
     "clean": "rm -rf server/dist client/dist"
   },

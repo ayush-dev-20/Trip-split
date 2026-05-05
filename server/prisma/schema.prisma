@@ -108,11 +108,14 @@ enum AuditAction {
 model User {
   id                String   @id @default(uuid())
   email             String   @unique
-  passwordHash      String?  // null if OAuth-only
+  passwordHash      String?  // null if OAuth-only or Clerk-managed
   name              String
   avatarUrl         String?
   preferredCurrency String   @default("USD")
   googleId          String?  @unique
+  clerkId           String?  @unique  // Clerk user ID (user_xxx)
+  phone             String?  @unique
+  phoneVerified     Boolean  @default(false)
   emailVerified     Boolean  @default(false)
   isActive          Boolean  @default(true)
   onboardingDone    Boolean  @default(false)
@@ -147,6 +150,7 @@ model User {
 
   @@index([email])
   @@index([googleId])
+  @@index([clerkId])
 }
 
 model RefreshToken {

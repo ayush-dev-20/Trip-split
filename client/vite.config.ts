@@ -92,9 +92,10 @@ export default defineConfig({
         ],
       },
       devOptions: {
-        // Enable SW in dev so you can test PWA install locally
-        enabled: true,
-        type: 'module',
+        // SW disabled in dev — it intercepts OAuth redirects and serves stale cache,
+        // breaking Clerk's post-Google-auth navigation back to the app.
+        // Test PWA install from a production build instead.
+        enabled: false,
       },
     }),
   ],
@@ -109,6 +110,20 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes, _req, res) => {
+            // Disable proxy buffering for SSE so chunks reach the browser immediately
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              (res as import('http').ServerResponse).setHeader('X-Accel-Buffering', 'no');
+            }
+          });
+        },
+      },
+      // WebSocket proxy for Socket.io — needed when the client uses the same origin as Vite
+      '/socket.io': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        ws: true,
       },
     },
   },

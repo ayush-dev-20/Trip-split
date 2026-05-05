@@ -185,7 +185,10 @@ export const tripPlannerStream = async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
+  // Disable Nagle's algorithm so each write() is sent immediately
+  req.socket?.setNoDelay(true);
 
   try {
     await aiService.generateTripPlanStream(
@@ -237,11 +240,13 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
+  req.socket?.setNoDelay(true);
 
-  // Kick off checkpoint generation in parallel — it resolves after itinerary finishes streaming
-  const checkpointsPromise = aiService.generateCheckpointSuggestions({ destination: trip.destination, days, budget, currency, travelers });
-
+  // Stream the itinerary first, then generate checkpoints sequentially.
+  // Running both in parallel hits Gemini's rate limit (15 RPM on the free tier),
+  // causing the checkpoint call to fail silently and return an empty array.
   try {
     await aiService.generateTripPlanStream(
       { destination: trip.destination, days, budget, currency, travelers },
@@ -251,7 +256,7 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to generate itinerary.' })}\n\n`);
   }
 
-  const checkpoints = await checkpointsPromise;
+  const checkpoints = await aiService.generateCheckpointSuggestions({ destination: trip.destination, days, budget, currency, travelers });
   res.write(`data: ${JSON.stringify({ type: 'checkpoints', data: checkpoints })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
   res.end();

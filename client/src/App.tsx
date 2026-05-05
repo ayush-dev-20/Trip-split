@@ -1,5 +1,9 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router';
+import { useAuth } from '@clerk/clerk-react';
+import { registerClerkGetToken } from '@/lib/clerkHelper';
 import { useAuthStore } from '@/stores/authStore';
+import { authService } from '@/services/authService';
 
 // Layouts
 import AppLayout from '@/components/layout/AppLayout';
@@ -27,74 +31,126 @@ import AIAssistantPage from '@/pages/ai/AIAssistantPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import BillingPage from '@/pages/settings/BillingPage';
 import NotFoundPage from '@/pages/NotFoundPage';
+import NotesPage from '@/pages/trips/NotesPage';
+
+// ──────────────────────────────────
+// Auth Sync — keeps Clerk + DB user in sync on every session change
+// ──────────────────────────────────
+
+function AuthSync() {
+  const { isSignedIn, isLoaded, getToken } = useAuth();
+  const { setUser, clearUser, setFetchingUser } = useAuthStore();
+
+  // Register Clerk's getToken so the axios interceptor can use it outside React
+  useEffect(() => {
+    registerClerkGetToken(() => getToken());
+  }, [getToken]);
+
+  // Sync our DB user whenever Clerk session state changes
+  useEffect(() => {
+    if (!isLoaded) return;
+    if (isSignedIn) {
+      setFetchingUser(true);
+      authService
+        .getMe()
+        .then(setUser)
+        .catch(() => clearUser());
+    } else {
+      clearUser();
+    }
+  }, [isSignedIn, isLoaded, setUser, clearUser, setFetchingUser]);
+
+  return null;
+}
+
+// ──────────────────────────────────
+// Route Guards
+// ──────────────────────────────────
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  const { isSignedIn, isLoaded } = useAuth();
+  const user = useAuthStore((s) => s.user);
+  const isFetchingUser = useAuthStore((s) => s.isFetchingUser);
+
+  // Clerk still initialising, DB user fetch in-flight, or signed in but user not yet loaded
+  if (!isLoaded || isFetchingUser || (isSignedIn && !user)) return null;
+  if (!isSignedIn) return <Navigate to="/login" replace />;
+  // Onboarding gate: signed in but hasn't finished setup
+  if (!user?.onboardingDone) return <Navigate to="/onboarding" replace />;
   return <>{children}</>;
 }
 
 function GuestRoute({ children }: { children: React.ReactNode }) {
-  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
-  if (isAuthenticated) return <Navigate to="/dashboard" replace />;
+  const { isSignedIn, isLoaded } = useAuth();
+  if (!isLoaded) return null;
+  if (isSignedIn) return <Navigate to="/dashboard" replace />;
   return <>{children}</>;
 }
 
+// ──────────────────────────────────
+// App Router
+// ──────────────────────────────────
+
 export default function App() {
   return (
-    <Routes>
-      {/* Auth Routes */}
-      <Route element={<GuestRoute><AuthLayout /></GuestRoute>}>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-      </Route>
+    <>
+      <AuthSync />
 
-      {/* Onboarding */}
-      <Route
-        path="/onboarding"
-        element={
-          <ProtectedRoute>
+      <Routes>
+        {/* Auth Routes — only for signed-out users */}
+        <Route element={<GuestRoute><AuthLayout /></GuestRoute>}>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+        </Route>
+
+        {/* Onboarding — signed-in but not yet onboarded */}
+        <Route
+          path="/onboarding"
+          element={
             <OnboardingPage />
-          </ProtectedRoute>
-        }
-      />
+          }
+        />
 
-      {/* App Routes */}
-      <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
-        <Route path="/dashboard" element={<DashboardPage />} />
+        {/* App Routes — fully authenticated */}
+        <Route element={<ProtectedRoute><AppLayout /></ProtectedRoute>}>
+          <Route path="/dashboard" element={<DashboardPage />} />
 
-        {/* Trips */}
-        <Route path="/trips" element={<TripsPage />} />
-        <Route path="/trips/new" element={<CreateTripPage />} />
-        <Route path="/trips/:tripId" element={<TripDetailPage />} />
-        <Route path="/trips/:tripId/edit" element={<EditTripPage />} />
+          {/* Trips */}
+          <Route path="/trips" element={<TripsPage />} />
+          <Route path="/trips/new" element={<CreateTripPage />} />
+          <Route path="/trips/:tripId" element={<TripDetailPage />} />
+          <Route path="/trips/:tripId/edit" element={<EditTripPage />} />
 
-        {/* Groups */}
-        <Route path="/groups" element={<GroupsPage />} />
-        <Route path="/groups/:groupId" element={<GroupDetailPage />} />
+          {/* Groups */}
+          <Route path="/groups" element={<GroupsPage />} />
+          <Route path="/groups/:groupId" element={<GroupDetailPage />} />
 
-        {/* Expenses (trip-scoped) */}
-        <Route path="/trips/:tripId/expenses" element={<ExpensesPage />} />
-        <Route path="/trips/:tripId/expenses/new" element={<CreateExpensePage />} />
-        <Route path="/trips/:tripId/expenses/:expenseId" element={<ExpenseDetailPage />} />
+          {/* Expenses (trip-scoped) */}
+          <Route path="/trips/:tripId/expenses" element={<ExpensesPage />} />
+          <Route path="/trips/:tripId/expenses/new" element={<CreateExpensePage />} />
+          <Route path="/trips/:tripId/expenses/:expenseId" element={<ExpenseDetailPage />} />
 
-        {/* Settlements */}
-        <Route path="/trips/:tripId/settlements" element={<SettlementsPage />} />
+          {/* Settlements */}
+          <Route path="/trips/:tripId/settlements" element={<SettlementsPage />} />
 
-        {/* Analytics */}
-        <Route path="/analytics" element={<AnalyticsPage />} />
+          {/* Notes */}
+          <Route path="/trips/:tripId/notes" element={<NotesPage />} />
 
-        {/* AI */}
-        <Route path="/ai" element={<AIAssistantPage />} />
+          {/* Analytics */}
+          <Route path="/analytics" element={<AnalyticsPage />} />
 
-        {/* Settings */}
-        <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/settings/billing" element={<BillingPage />} />
-      </Route>
+          {/* AI */}
+          <Route path="/ai" element={<AIAssistantPage />} />
 
-      {/* Redirects & 404 */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<NotFoundPage />} />
-    </Routes>
+          {/* Settings */}
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings/billing" element={<BillingPage />} />
+        </Route>
+
+        {/* Redirects & 404 */}
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </>
   );
 }

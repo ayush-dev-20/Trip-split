@@ -291,7 +291,8 @@ export default function AIAssistantPage() {
                 {plannerStreaming ? 'Generating Itinerary…' : 'Generate Trip Itinerary'}
               </Button>
 
-              {plannerStreaming && (
+              {/* Spinner — only before the first chunk arrives */}
+              {plannerStreaming && !plannerText && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
                   <span className="flex gap-1">
                     <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -303,7 +304,18 @@ export default function AIAssistantPage() {
               )}
 
               {plannerText && (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+                <div>
+                  {/* Inline streaming indicator shown alongside arriving content */}
+                  {plannerStreaming && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                      <span className="flex gap-1">
+                        <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                        <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                        <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      </span>
+                      Writing itinerary…
+                    </div>
+                  )}
                   <Card>
                     <CardContent className="p-6 prose prose-sm dark:prose-invert max-w-none">
                       <ReactMarkdown
@@ -339,7 +351,7 @@ export default function AIAssistantPage() {
                       </ReactMarkdown>
                     </CardContent>
                   </Card>
-                </motion.div>
+                </div>
               )}
             </CardContent>
           </Card>

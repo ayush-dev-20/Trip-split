@@ -20,10 +20,18 @@ export const env = {
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '15m',
   JWT_REFRESH_EXPIRES_IN: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
 
-  // Google OAuth
+  // Google OAuth (legacy — now handled by Clerk)
   GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID || '',
   GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET || '',
   GOOGLE_CALLBACK_URL: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3000/api/auth/google/callback',
+
+  // Clerk Auth — accept VITE_ prefix too (common copy-paste mistake in server/.env)
+  CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY || '',
+  CLERK_PUBLISHABLE_KEY:
+    process.env.CLERK_PUBLISHABLE_KEY ||
+    process.env.VITE_CLERK_PUBLISHABLE_KEY ||
+    '',
+  CLERK_WEBHOOK_SECRET: process.env.CLERK_WEBHOOK_SECRET || '',
 
   // Gemini AI
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',

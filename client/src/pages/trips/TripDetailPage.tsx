@@ -12,7 +12,7 @@ import CheckpointFormDialog from '@/components/ui/CheckpointFormDialog';
 import {
   MapPin, Calendar, DollarSign, Plus, Receipt, ArrowLeft,
   MoreVertical, Trash2, Settings, Share2, ArrowRightLeft, Pencil, Download,
-  Sparkles, CheckCircle2, Circle, MapPinned, X,
+  Sparkles, CheckCircle2, Circle, MapPinned, X, NotebookPen,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -258,7 +258,7 @@ export default function TripDetailPage() {
       </div>
 
       {/* Quick Links */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <Button asChild>
           <Link to={`/trips/${tripId}/expenses/new`}>
             <Plus className="h-4 w-4 mr-2" /> Add Expense
@@ -279,12 +279,18 @@ export default function TripDetailPage() {
             <DollarSign className="h-4 w-4 mr-2" /> Analytics
           </Link>
         </Button>
-        {trip.destination && (
+        <Button variant="secondary" asChild>
+          <Link to={`/trips/${tripId}/notes`}>
+            <NotebookPen className="h-4 w-4 mr-2" /> Notes
+          </Link>
+        </Button>
+        {/* TODO: Add it later once we have a better plan for it. */}
+        {/* {trip.destination && (
           <Button variant="secondary" onClick={handlePlanItinerary} disabled={planning}>
             <Sparkles className="h-4 w-4 mr-2" />
             {planning ? 'Planning…' : 'Plan Itinerary'}
           </Button>
-        )}
+        )} */}
       </div>
 
       {/* Simplified Debts */}
@@ -534,99 +540,118 @@ export default function TripDetailPage() {
 
       {/* Plan Itinerary Dialog */}
       <Dialog open={planOpen} onOpenChange={setPlanOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-3xl flex flex-col gap-0 p-0" style={{ maxHeight: '85vh' }}>
+          {/* Fixed header */}
+          <DialogHeader className="shrink-0 px-6 pt-6 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5" /> AI Trip Itinerary
             </DialogTitle>
           </DialogHeader>
 
-          {planning ? (
-            <div className="flex flex-col items-center justify-center py-12 gap-3">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-              <p className="text-sm text-muted-foreground">Generating your itinerary…</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {/* Itinerary Markdown */}
-              {itinerary && (
-                <Card>
-                  <CardContent className="p-6 prose prose-sm dark:prose-invert max-w-none">
-                    <ReactMarkdown
-                      components={{
-                        h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3 text-foreground">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-lg font-bold mt-6 mb-2 pb-1 border-b border-border text-foreground">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-base font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>,
-                        h4: ({ children }) => <h4 className="text-sm font-semibold mt-3 mb-1 text-foreground">{children}</h4>,
-                        p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-sm text-muted-foreground">{children}</p>,
-                        strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                        em: ({ children }) => <em className="italic">{children}</em>,
-                        ul: ({ children }) => <ul className="list-disc list-outside pl-5 space-y-1 my-2">{children}</ul>,
-                        ol: ({ children }) => <ol className="list-decimal list-outside pl-5 space-y-1 my-2">{children}</ol>,
-                        li: ({ children }) => <li className="text-sm text-muted-foreground leading-relaxed">{children}</li>,
-                        hr: () => <hr className="my-4 border-border" />,
-                        code: ({ children }) => (
-                          <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">{children}</code>
-                        ),
-                        table: ({ children }) => (
-                          <div className="overflow-x-auto my-3">
-                            <table className="w-full text-sm border-collapse">{children}</table>
-                          </div>
-                        ),
-                        thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
-                        th: ({ children }) => <th className="text-left px-3 py-2 font-semibold text-foreground border-b border-border">{children}</th>,
-                        td: ({ children }) => <td className="px-3 py-2 border-b border-border text-muted-foreground">{children}</td>,
-                        blockquote: ({ children }) => (
-                          <blockquote className="border-l-4 border-primary/40 pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
-                        ),
-                      }}
-                    >
-                      {itinerary}
-                    </ReactMarkdown>
-                  </CardContent>
-                </Card>
-              )}
+          {/* Scrollable body — shows content as it streams in */}
+          <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-5">
+            {/* Spinner shown only before the first chunk arrives */}
+            {planning && !itinerary && (
+              <div className="flex flex-col items-center justify-center py-12 gap-3">
+                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                <p className="text-sm text-muted-foreground">Generating your itinerary…</p>
+              </div>
+            )}
 
-              {/* Suggested Checkpoints */}
-              {suggestions.length > 0 && (
-                <div>
-                  <h3 className="text-base font-semibold mb-3">Suggested Checkpoints</h3>
-                  <p className="text-sm text-muted-foreground mb-3">
-                    Select the places you'd like to add to your trip checklist.
-                  </p>
-                  <div className="space-y-2">
-                    {suggestions.map((s, i) => (
-                      <Card
-                        key={i}
-                        className={`cursor-pointer transition-colors ${selectedSuggestions.has(i) ? 'border-primary bg-primary/5' : ''}`}
-                        onClick={() => toggleSuggestion(i)}
-                      >
-                        <CardContent className="p-3 flex items-center gap-3">
-                          <Checkbox checked={selectedSuggestions.has(i)} />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium">{s.title}</p>
-                            <p className="text-xs text-muted-foreground">{s.description}</p>
-                          </div>
-                          <div className="flex flex-col items-end gap-1 shrink-0">
-                            <Badge variant="outline" className="text-[10px]">{s.category}</Badge>
-                            {s.estimatedCost > 0 && (
-                              <span className="text-xs text-muted-foreground">
-                                ~{trip.budgetCurrency} {s.estimatedCost}
-                              </span>
-                            )}
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                  <div className="flex justify-end mt-4 gap-2">
-                    <Button variant="ghost" onClick={() => setPlanOpen(false)}>Cancel</Button>
-                    <Button onClick={handleSaveCheckpoints} disabled={selectedSuggestions.size === 0}>
-                      Save {selectedSuggestions.size} Checkpoint{selectedSuggestions.size !== 1 ? 's' : ''}
-                    </Button>
-                  </div>
+            {/* Streaming indicator shown alongside content once text starts arriving */}
+            {planning && itinerary && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <span className="flex gap-1">
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                </span>
+                Writing itinerary…
+              </div>
+            )}
+
+            {/* Itinerary markdown — renders as chunks arrive */}
+            {itinerary && (
+              <Card>
+                <CardContent className="p-6 prose prose-sm dark:prose-invert max-w-none">
+                  <ReactMarkdown
+                    components={{
+                      h1: ({ children }) => <h1 className="text-xl font-bold mt-6 mb-3 text-foreground">{children}</h1>,
+                      h2: ({ children }) => <h2 className="text-lg font-bold mt-6 mb-2 pb-1 border-b border-border text-foreground">{children}</h2>,
+                      h3: ({ children }) => <h3 className="text-base font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>,
+                      h4: ({ children }) => <h4 className="text-sm font-semibold mt-3 mb-1 text-foreground">{children}</h4>,
+                      p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed text-sm text-muted-foreground">{children}</p>,
+                      strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                      em: ({ children }) => <em className="italic">{children}</em>,
+                      ul: ({ children }) => <ul className="list-disc list-outside pl-5 space-y-1 my-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal list-outside pl-5 space-y-1 my-2">{children}</ol>,
+                      li: ({ children }) => <li className="text-sm text-muted-foreground leading-relaxed">{children}</li>,
+                      hr: () => <hr className="my-4 border-border" />,
+                      code: ({ children }) => (
+                        <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">{children}</code>
+                      ),
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-3">
+                          <table className="w-full text-sm border-collapse">{children}</table>
+                        </div>
+                      ),
+                      thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
+                      th: ({ children }) => <th className="text-left px-3 py-2 font-semibold text-foreground border-b border-border">{children}</th>,
+                      td: ({ children }) => <td className="px-3 py-2 border-b border-border text-muted-foreground">{children}</td>,
+                      blockquote: ({ children }) => (
+                        <blockquote className="border-l-4 border-primary/40 pl-4 my-3 italic text-muted-foreground">{children}</blockquote>
+                      ),
+                    }}
+                  >
+                    {itinerary}
+                  </ReactMarkdown>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Suggested Checkpoints — appear after streaming completes */}
+            {suggestions.length > 0 && (
+              <div>
+                <h3 className="text-base font-semibold mb-3">Suggested Checkpoints</h3>
+                <p className="text-sm text-muted-foreground mb-3">
+                  Select the places you'd like to add to your trip checklist.
+                </p>
+                <div className="space-y-2">
+                  {suggestions.map((s, i) => (
+                    <Card
+                      key={i}
+                      className={`cursor-pointer transition-colors ${selectedSuggestions.has(i) ? 'border-primary bg-primary/5' : ''}`}
+                      onClick={() => toggleSuggestion(i)}
+                    >
+                      <CardContent className="p-3 flex items-center gap-3">
+                        <Checkbox checked={selectedSuggestions.has(i)} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium">{s.title}</p>
+                          <p className="text-xs text-muted-foreground">{s.description}</p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 shrink-0">
+                          <Badge variant="outline" className="text-[10px]">{s.category}</Badge>
+                          {s.estimatedCost > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                              ~{trip.budgetCurrency} {s.estimatedCost}
+                            </span>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
-              )}
+              </div>
+            )}
+          </div>
+
+          {/* Fixed footer — only visible once checkpoints are ready to save */}
+          {suggestions.length > 0 && (
+            <div className="shrink-0 border-t px-6 py-4 flex justify-end gap-2 bg-background">
+              <Button variant="ghost" onClick={() => setPlanOpen(false)}>Cancel</Button>
+              <Button onClick={handleSaveCheckpoints} disabled={selectedSuggestions.size === 0}>
+                Save {selectedSuggestions.size} Checkpoint{selectedSuggestions.size !== 1 ? 's' : ''}
+              </Button>
             </div>
           )}
         </DialogContent>

@@ -93,3 +93,82 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .dark {
   --calendar-icon-filter: invert(1);
 }
+
+/* ── Mobile / PWA safe-area utilities ───────────────────────────── */
+/* Used by BottomNav to sit above the iOS home indicator             */
+@layer utilities {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+  /* Horizontal scroll wrapper for charts on small screens */
+  .chart-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .chart-scroll::-webkit-scrollbar {
+    height: 3px;
+  }
+}
+
+/* Ensure the page itself respects safe areas on notched devices */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+/* ── Tiptap editor ───────────────────────────────────────────────── */
+.ProseMirror {
+  outline: none;
+  min-height: 100%;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding: 0;
+}
+
+.ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+}
+
+.ProseMirror ul[data-type="taskList"] li > div {
+  flex: 1;
+}
+
+.ProseMirror pre {
+  background: hsl(var(--muted));
+  border-radius: 0.375rem;
+  padding: 0.75rem 1rem;
+  font-size: 0.8rem;
+  overflow-x: auto;
+}
+
+.ProseMirror blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1rem;
+  color: hsl(var(--muted-foreground));
+  margin: 0.5rem 0;
+}
+
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid hsl(var(--border));
+  margin: 1rem 0;
+}

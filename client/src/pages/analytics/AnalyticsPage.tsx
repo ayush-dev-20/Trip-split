@@ -83,16 +83,23 @@ function StatCard({ icon: Icon, label, value, sub, className }: {
 }
 
 // ─── Chart Card wrapper ───────────────────────────────────
-function ChartCard({ title, children, className }: {
+// scrollable=true wraps children in a horizontal scroll container with a
+// minimum width so charts don't get squished on narrow phone screens.
+function ChartCard({ title, children, className, minW = 280 }: {
   title: string;
   children: React.ReactNode;
   className?: string;
+  minW?: number;
 }) {
   return (
     <Card className={className}>
-      <CardContent className="p-5">
-        <h3 className="text-sm font-semibold mb-4">{title}</h3>
-        {children}
+      <CardContent className="p-4 sm:p-5">
+        <h3 className="text-sm font-semibold mb-3">{title}</h3>
+        <div className="chart-scroll -mx-1 px-1">
+          <div style={{ minWidth: minW }}>
+            {children}
+          </div>
+        </div>
       </CardContent>
     </Card>
   );
@@ -181,7 +188,7 @@ export default function AnalyticsPage() {
           </h2>
 
           {/* A1: Summary stat cards */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
             <StatCard icon={DollarSign} label="Total Spent" value={fmt(yearReview.totalSpent, yearCurrency)} sub={`across ${yearReview.totalExpenses} expenses`} />
             <StatCard icon={MapPin} label="Trips Taken" value={String(yearReview.totalTrips)} sub={`${yearReview.destinationCount ?? yearReview.topDestinations?.length ?? 0} destinations`} />
             <StatCard icon={Receipt} label="Avg Per Trip" value={fmt(yearReview.avgPerTrip ?? 0, yearCurrency)} />
@@ -274,7 +281,7 @@ export default function AnalyticsPage() {
               className="space-y-5"
             >
               {/* B1: Trip Summary Stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
                 <StatCard icon={DollarSign} label="Total Spent" value={fmt(analytics.summary.totalSpent, currency)} />
                 <StatCard icon={Wallet} label="Budget" value={analytics.summary.budget ? fmt(analytics.summary.budget, currency) : 'No budget'} />
                 <StatCard

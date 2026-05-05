@@ -445,3 +445,15 @@ export interface OverallBalances {
   iOwe: OverallDebtEntry[];
   owedToMe: OverallDebtEntry[];
 }
+
+export interface TripNote {
+  id: string;
+  tripId: string;
+  userId: string;
+  title: string;
+  content: string;
+  isPinned: boolean;
+  user?: User;
+  createdAt: string;
+  updatedAt: string;
+}

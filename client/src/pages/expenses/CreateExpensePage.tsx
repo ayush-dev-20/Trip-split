@@ -1,11 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useCreateExpense } from '@/hooks/useExpenses';
 import { useTrip } from '@/hooks/useTrips';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, Sparkles, Camera, Users, AlertCircle } from 'lucide-react';
+import { ArrowLeft, Sparkles, Camera, Users, AlertCircle, Mic, MicOff } from 'lucide-react';
 import { aiService } from '@/services/aiService';
 import type { ExpenseCategory, SplitType } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -46,6 +46,8 @@ export default function CreateExpensePage() {
 
   const [nlpInput, setNlpInput] = useState('');
   const [nlpLoading, setNlpLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   if (tripLoading || !trip) return <PageLoader />;
 
@@ -99,6 +101,31 @@ export default function CreateExpensePage() {
       members.forEach((m) => { defaults[m.userId] = '1'; });
     }
     setSplitValues(defaults);
+  };
+
+  const toggleVoice = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return; // Browser doesn't support speech recognition
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const recognition = new SR();
+    recognition.lang = 'en-US';
+    recognition.interimResults = false;
+    recognition.onresult = (e: SpeechRecognitionEvent) => {
+      const transcript = e.results[0][0].transcript;
+      setNlpInput(transcript);
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
   };
 
   const handleNLP = async () => {
@@ -200,15 +227,28 @@ export default function CreateExpensePage() {
             <Sparkles className="h-4 w-4 text-primary" /> AI Quick Entry
           </p>
           <div className="flex gap-2">
-            <Input
-              value={nlpInput}
-              onChange={(e) => setNlpInput(e.target.value)}
-              placeholder='e.g. "Lunch at seafood restaurant $45 split equally"'
-              className="flex-1"
-              onKeyDown={(e) => e.key === 'Enter' && handleNLP()}
-            />
+            <div className="relative flex-1">
+              <Input
+                value={nlpInput}
+                onChange={(e) => setNlpInput(e.target.value)}
+                placeholder={isListening ? 'Listening… speak now' : 'e.g. "Lunch at seafood restaurant $45 split equally"'}
+                className="pr-10"
+                onKeyDown={(e) => e.key === 'Enter' && handleNLP()}
+              />
+              {/* Mic button — Web Speech API */}
+              {'SpeechRecognition' in window || 'webkitSpeechRecognition' in window ? (
+                <button
+                  type="button"
+                  onClick={toggleVoice}
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors ${isListening ? 'text-destructive animate-pulse' : 'text-muted-foreground hover:text-foreground'}`}
+                  title={isListening ? 'Stop recording' : 'Speak your expense'}
+                >
+                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </button>
+              ) : null}
+            </div>
             <Button variant="secondary" onClick={handleNLP} disabled={nlpLoading} className="shrink-0">
-              {nlpLoading ? 'Parsing...' : 'Parse'}
+              {nlpLoading ? 'Parsing…' : 'Parse'}
             </Button>
           </div>
           <div className="flex gap-2">

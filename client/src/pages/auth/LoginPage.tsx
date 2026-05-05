@@ -1,30 +1,77 @@
-import { useState } from 'react';
-import { Link } from 'react-router';
-import { useLogin } from '@/hooks/useAuth';
-import { Eye, EyeOff, Mail, Lock } from 'lucide-react';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { SignIn } from '@clerk/clerk-react';
 import { useThemeStore } from '@/stores/themeStore';
 import logoDark from '@/assets/logo/tripsplit-dark-64.svg';
 import logoLight from '@/assets/logo/tripsplit-light-96.svg';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+
+const DARK_VARS = {
+  colorBackground: 'hsl(222.2, 84%, 4.9%)',
+  colorInputBackground: 'hsl(217.2, 32.6%, 17.5%)',
+  colorText: 'hsl(210, 40%, 98%)',
+  colorTextSecondary: 'hsl(215, 20.2%, 65.1%)',
+  colorInputText: 'hsl(210, 40%, 98%)',
+  colorPrimary: 'hsl(217.2, 91.2%, 59.8%)',
+  colorDanger: 'hsl(0, 72%, 51%)',
+  colorNeutral: 'hsl(215, 20.2%, 65.1%)',
+  borderRadius: '0.625rem',
+  fontFamily: 'inherit',
+} as const;
+
+const LIGHT_VARS = {
+  colorBackground: 'hsl(0, 0%, 98%)',
+  colorInputBackground: 'hsl(0, 0%, 100%)',
+  colorText: 'hsl(222.2, 84%, 4.9%)',
+  colorTextSecondary: 'hsl(215.4, 16.3%, 46.9%)',
+  colorInputText: 'hsl(222.2, 84%, 4.9%)',
+  colorPrimary: 'hsl(221.2, 83.2%, 53.3%)',
+  colorDanger: 'hsl(0, 84.2%, 60.2%)',
+  colorNeutral: 'hsl(215.4, 16.3%, 46.9%)',
+  borderRadius: '0.625rem',
+  fontFamily: 'inherit',
+} as const;
+
+const SHARED_ELEMENTS = {
+  rootBox: 'w-full',
+  // Nuke the card chrome — let our page background show everywhere
+  card: '!shadow-none !border-0 !bg-transparent !p-0 w-full',
+  cardBox: '!shadow-none !border-0 !bg-transparent w-full',
+  // Hide Clerk's own header — we render our own above
+  headerTitle: 'hidden',
+  headerSubtitle: 'hidden',
+  // Footer: transparent so the page bg shows through
+  footer: '!bg-transparent !border-0',
+  footerPages: '!bg-transparent',
+  footerPagesLink: '!text-primary hover:underline text-sm font-medium',
+  // Social buttons styled to match shadcn outline button
+  socialButtonsBlockButton:
+    'border border-border bg-background hover:bg-muted text-foreground !rounded-md h-10 transition-colors',
+  socialButtonsBlockButtonText: 'font-medium text-sm',
+  socialButtonsBlockButtonArrow: 'hidden',
+  // Divider
+  dividerRow: 'my-4',
+  dividerText: 'text-muted-foreground text-xs',
+  dividerLine: 'bg-border',
+  // Form labels & inputs
+  formFieldLabel: 'text-sm font-medium text-foreground',
+  formFieldInput:
+    'border border-input bg-background text-foreground !rounded-md h-10 px-3 text-sm ' +
+    'focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-ring',
+  formFieldInputShowPasswordButton: 'text-muted-foreground',
+  // Primary action button
+  formButtonPrimary:
+    'bg-primary text-primary-foreground hover:bg-primary/90 !rounded-md h-10 text-sm font-medium w-full',
+  // Misc
+  identityPreviewText: 'text-foreground text-sm',
+  identityPreviewEditButton: 'text-primary text-sm',
+  alertText: 'text-destructive text-sm',
+  formFieldErrorText: 'text-destructive text-xs',
+  // Phone input country selector
+  phoneInputBox: 'border border-input !rounded-md overflow-hidden',
+} as const;
 
 export default function LoginPage() {
-  const login = useLogin();
   const { resolvedTheme } = useThemeStore();
   const isDark = resolvedTheme() === 'dark';
   const iconSrc = isDark ? logoDark : logoLight;
-
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    login.mutate({ email, password });
-  };
 
   return (
     <div className="space-y-8">
@@ -34,76 +81,20 @@ export default function LoginPage() {
         <span className="text-xl font-bold tracking-tight">TripSplit</span>
       </div>
 
-      <Card className="border-0 shadow-none bg-transparent">
-        <CardHeader className="px-0">
-          <CardTitle className="text-2xl">Welcome back</CardTitle>
-          <CardDescription>Sign in to manage your trip expenses</CardDescription>
-        </CardHeader>
+      <div className="flex flex-col items-center gap-2">
+        <h1 className="text-2xl font-bold">Welcome back</h1>
+        <p className="text-sm text-muted-foreground">Sign in to manage your trip expenses</p>
+      </div>
 
-        <CardContent className="px-0 space-y-5">
-          {login.isError && (
-            <Alert variant="destructive">
-              <AlertDescription>
-                {(login.error as Error)?.message || 'Invalid email or password'}
-              </AlertDescription>
-            </Alert>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-5">
-            <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="pl-10"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="password">Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  id="password"
-                  type={showPassword ? 'text' : 'password'}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="pl-10 pr-10"
-                  placeholder="••••••••"
-                  required
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </Button>
-              </div>
-            </div>
-
-            <Button type="submit" disabled={login.isPending} className="w-full">
-              {login.isPending ? 'Signing in...' : 'Sign In'}
-            </Button>
-          </form>
-
-          <p className="text-center text-sm text-muted-foreground">
-            Don't have an account?{' '}
-            <Link to="/register" className="font-medium text-primary hover:underline">
-              Sign up
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
+      <SignIn
+        routing="hash"
+        signUpUrl="/register"
+        forceRedirectUrl="/dashboard"
+        appearance={{
+          variables: isDark ? DARK_VARS : LIGHT_VARS,
+          elements: SHARED_ELEMENTS,
+        }}
+      />
     </div>
   );
 }

@@ -2,12 +2,17 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ClerkProvider } from '@clerk/clerk-react';
+import { SocketProvider } from '@/contexts/SocketContext';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import './index.css';
 
-// Register service worker — auto-updates in background, reloads when new version is ready
-registerSW({ onNeedRefresh() {}, onOfflineReady() {} });
+// Only register the service worker in production builds.
+// In dev the SW intercepts OAuth callback redirects and breaks Clerk auth.
+if (import.meta.env.PROD) {
+  registerSW({ onNeedRefresh() {}, onOfflineReady() {} });
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -19,12 +24,22 @@ const queryClient = new QueryClient({
   },
 });
 
+const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string;
+
+if (!CLERK_PUBLISHABLE_KEY) {
+  throw new Error('Missing VITE_CLERK_PUBLISHABLE_KEY — add it to client/.env');
+}
+
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </QueryClientProvider>
+    <ClerkProvider publishableKey={CLERK_PUBLISHABLE_KEY} afterSignOutUrl="/login">
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>
+          <SocketProvider>
+            <App />
+          </SocketProvider>
+        </BrowserRouter>
+      </QueryClientProvider>
+    </ClerkProvider>
   </React.StrictMode>
 );

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import { clerkMiddleware } from '@clerk/express';
 import { env } from './config/env';
 import { errorHandler, generalLimiter } from './middleware';
 import { logger } from './utils/logger';
@@ -18,6 +19,9 @@ import aiRoutes from './routes/aiRoutes';
 import billingRoutes from './routes/billingRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import checkpointRoutes from './routes/checkpointRoutes';
+import noteRoutes from './routes/noteRoutes';
+import webhookRoutes from './routes/webhookRoutes';
+import exportRoutes from './routes/exportRoutes';
 
 const app = express();
 
@@ -34,7 +38,14 @@ app.use(
 );
 app.use(cookieParser());
 
-// ── Structured request / response logger ──
+// Clerk middleware must come before routes (validates session tokens)
+// Keys are passed explicitly so Clerk doesn't rely on env-var auto-detection
+app.use(clerkMiddleware({
+  publishableKey: env.CLERK_PUBLISHABLE_KEY,
+  secretKey: env.CLERK_SECRET_KEY,
+}));
+
+// Structured request / response logger
 app.use((req, res, next) => {
   const start = Date.now();
   const skip = ['/api/health'];
@@ -48,6 +59,9 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// Webhook routes need raw body for signature verification — mount BEFORE json parser
+app.use('/api/webhooks', webhookRoutes);
 
 // JSON parser
 app.use(express.json({ limit: '10mb' }));
@@ -63,8 +77,8 @@ app.use('/api/', generalLimiter);
 app.get('/api/health', (_req, res) => {
   res.json({
     success: true,
-    message: 'Expense Tracker API is running',
-    version: '1.0.0',
+    message: 'TripSplit API is running',
+    version: '2.0.0',
     timestamp: new Date().toISOString(),
   });
 });
@@ -84,6 +98,8 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/trips', checkpointRoutes);
+app.use('/api/trips', noteRoutes);
+app.use('/api/export', exportRoutes);
 
 // ──────────────────────────────────
 // 404 Handler

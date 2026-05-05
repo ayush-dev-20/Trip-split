@@ -22,16 +22,54 @@ function getModel() {
 }
 
 /**
+ * Extracts a JSON value from raw Gemini output, handling:
+ * - Markdown code fences (```json ... ```)
+ * - Prose before/after the JSON
+ * - Arrays wrapped in an object (e.g. { "items": [...] })
+ */
+function extractJSON(text: string): unknown {
+  // Strip code fences
+  const stripped = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+
+  // Try parsing the whole cleaned string first
+  try {
+    return JSON.parse(stripped);
+  } catch { /* fall through */ }
+
+  // Try to find the first JSON array [...] in the text
+  const arrayMatch = stripped.match(/\[[\s\S]*\]/);
+  if (arrayMatch) {
+    try { return JSON.parse(arrayMatch[0]); } catch { /* fall through */ }
+  }
+
+  // Try to find the first JSON object {...} in the text
+  const objectMatch = stripped.match(/\{[\s\S]*\}/);
+  if (objectMatch) {
+    try { return JSON.parse(objectMatch[0]); } catch { /* fall through */ }
+  }
+
+  throw new SyntaxError('No valid JSON found in response');
+}
+
+/**
  * Helper — send a prompt and get parsed JSON back.
+ * If the model returns an object wrapping an array (e.g. { "items": [...] })
+ * and the caller expected an array, we unwrap it automatically.
  */
 async function askJSON<T>(prompt: string, fallback: T): Promise<T> {
   try {
     const model = getModel();
     const result = await model.generateContent(prompt);
     const text = result.response.text();
-    // Strip markdown code fences if present
-    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-    return JSON.parse(cleaned) as T;
+    let parsed = extractJSON(text);
+
+    // If caller expects an array but got an object, look for the first array value
+    if (Array.isArray(fallback) && parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      const nestedArray = Object.values(parsed as Record<string, unknown>).find((v) => Array.isArray(v));
+      if (nestedArray !== undefined) parsed = nestedArray;
+    }
+
+    return parsed as T;
   } catch (err) {
     logger.error('AIService', 'Gemini JSON parse error', { error: String(err) });
     return fallback;

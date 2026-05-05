@@ -1,5 +1,5 @@
 import api from './api';
-import { useAuthStore } from '@/stores/authStore';
+import { getClerkToken } from '@/lib/clerkHelper';
 import type { ReceiptScanResult, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint } from '@/types';
 
 /**
@@ -7,7 +7,7 @@ import type { ReceiptScanResult, TripPlan, TripPlanWithCheckpoints, NLPExpenseRe
  * Yields parsed JSON objects from `data: {...}` lines.
  */
 async function* streamSSE(url: string, body: unknown): AsyncGenerator<{ type: string; [key: string]: unknown }> {
-  const token = useAuthStore.getState().accessToken;
+  const token = await getClerkToken();
   const response = await fetch(url, {
     method: 'POST',
     headers: {

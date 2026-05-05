@@ -232,14 +232,12 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
       name: user.name,
       avatarUrl: user.avatarUrl,
       preferredCurrency: user.preferredCurrency,
-      timezone: user.timezone,
-      locale: user.locale,
-      emailVerified: user.emailVerified,
       onboardingDone: user.onboardingDone,
-      notifyEmail: user.notifyEmail,
-      notifyInApp: user.notifyInApp,
-      notifyPush: user.notifyPush,
-      tier: user.subscription?.tier || 'FREE',
+      // Map DB field names → client User type field names
+      emailNotifications: user.notifyEmail,
+      pushNotifications: user.notifyPush,
+      weeklyReport: user.notifyInApp,
+      tier: user.subscription?.tier ?? 'FREE',
       subscription: user.subscription
         ? {
             tier: user.subscription.tier,
@@ -257,9 +255,24 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
  * PUT /api/auth/profile
  */
 export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
+  // Map client field names → DB column names before writing
+  const { emailNotifications, pushNotifications, weeklyReport, ...rest } = req.body as {
+    name?: string;
+    preferredCurrency?: string;
+    avatarUrl?: string;
+    emailNotifications?: boolean;
+    pushNotifications?: boolean;
+    weeklyReport?: boolean;
+  };
+
+  const data: Record<string, unknown> = { ...rest };
+  if (emailNotifications !== undefined) data.notifyEmail = emailNotifications;
+  if (pushNotifications !== undefined) data.notifyPush = pushNotifications;
+  if (weeklyReport !== undefined) data.notifyInApp = weeklyReport;
+
   const updated = await prisma.user.update({
     where: { id: req.user!.id },
-    data: req.body,
+    data,
   });
 
   res.json({
@@ -270,11 +283,10 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
       name: updated.name,
       avatarUrl: updated.avatarUrl,
       preferredCurrency: updated.preferredCurrency,
-      timezone: updated.timezone,
-      locale: updated.locale,
-      notifyEmail: updated.notifyEmail,
-      notifyInApp: updated.notifyInApp,
-      notifyPush: updated.notifyPush,
+      onboardingDone: updated.onboardingDone,
+      emailNotifications: updated.notifyEmail,
+      pushNotifications: updated.notifyPush,
+      weeklyReport: updated.notifyInApp,
     },
   });
 });
@@ -386,10 +398,39 @@ export const googleAuth = asyncHandler(async (req: Request, res: Response) => {
  * PUT /api/auth/onboarding
  */
 export const completeOnboarding = asyncHandler(async (req: Request, res: Response) => {
-  await prisma.user.update({
+  const { preferredCurrency } = req.body as { preferredCurrency?: string };
+
+  const user = await prisma.user.update({
     where: { id: req.user!.id },
-    data: { onboardingDone: true },
+    data: {
+      onboardingDone: true,
+      ...(preferredCurrency ? { preferredCurrency } : {}),
+    },
+    include: { subscription: true },
   });
 
-  res.json({ success: true, message: 'Onboarding completed' });
+  res.json({
+    success: true,
+    data: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      avatarUrl: user.avatarUrl,
+      preferredCurrency: user.preferredCurrency,
+      onboardingDone: user.onboardingDone,
+      emailNotifications: user.notifyEmail,
+      pushNotifications: user.notifyPush,
+      weeklyReport: user.notifyInApp,
+      tier: user.subscription?.tier ?? 'FREE',
+      subscription: user.subscription
+        ? {
+            tier: user.subscription.tier,
+            status: user.subscription.status,
+            currentPeriodEnd: user.subscription.currentPeriodEnd,
+            cancelAtPeriodEnd: user.subscription.cancelAtPeriodEnd,
+          }
+        : null,
+      createdAt: user.createdAt,
+    },
+  });
 });
