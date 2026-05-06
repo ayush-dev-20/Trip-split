@@ -18,9 +18,9 @@ const SocketContext = createContext<SocketContextValue>({
   leaveTrip: () => {},
 });
 
-// In dev the Vite proxy doesn't cover /socket.io, so connect directly to the API server.
-// In production the socket server is on the same origin.
-const SOCKET_URL = import.meta.env.DEV ? 'http://localhost:3000' : '/';
+// WebSockets must connect directly to the API server (Render), not the frontend host (Vercel).
+// VITE_API_URL must be set to the Render service URL in production (e.g. https://your-app.onrender.com).
+const SOCKET_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 
 export function SocketProvider({ children }: { children: React.ReactNode }) {
   const { isSignedIn } = useAuth();
