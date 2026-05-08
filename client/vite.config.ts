@@ -55,7 +55,7 @@ export default defineConfig({
         categories: ['finance', 'travel', 'utilities'],
       },
       workbox: {
-        // Cache app shell, fonts, and static assets
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
         runtimeCaching: [
           {
