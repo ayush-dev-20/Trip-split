@@ -172,3 +172,36 @@ html {
   border-top: 1px solid hsl(var(--border));
   margin: 1rem 0;
 }
+
+/* ── Tables ─────────────────────────────────────────────────── */
+.ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1rem 0;
+  font-size: 0.875rem;
+  overflow-x: auto;
+  display: block;
+}
+
+.ProseMirror table td,
+.ProseMirror table th {
+  border: 1px solid hsl(var(--border));
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+  min-width: 80px;
+}
+
+.ProseMirror table th {
+  background: hsl(var(--muted));
+  font-weight: 600;
+  color: hsl(var(--foreground));
+}
+
+.ProseMirror table tr:nth-child(even) td {
+  background: hsl(var(--muted) / 0.3);
+}
+
+.ProseMirror table .selectedCell {
+  background: hsl(var(--primary) / 0.1);
+}

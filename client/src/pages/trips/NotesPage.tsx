@@ -7,6 +7,11 @@ import TaskItem from '@tiptap/extension-task-item';
 import Placeholder from '@tiptap/extension-placeholder';
 import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
 import { createLowlight } from 'lowlight';
+import { Table } from '@tiptap/extension-table';
+import { TableRow } from '@tiptap/extension-table-row';
+import { TableHeader } from '@tiptap/extension-table-header';
+import { TableCell } from '@tiptap/extension-table-cell';
+import { Markdown } from 'tiptap-markdown';
 import {
   Plus,
   Pin,
@@ -232,6 +237,15 @@ function NoteEditor({
       TaskItem.configure({ nested: true }),
       CodeBlockLowlight.configure({ lowlight }),
       Placeholder.configure({ placeholder: 'Write something…' }),
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      Markdown.configure({
+        html: true,
+        transformPastedText: true,
+        transformCopiedText: false,
+      }),
     ],
     content: note.content || '',
     onUpdate: ({ editor }) => {
