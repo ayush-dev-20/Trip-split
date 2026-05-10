@@ -271,7 +271,8 @@ function NoteEditor({
         // External paste (Slack, Notion, browser, etc.):
         // Force the plain text through tiptap-markdown's parser so markdown
         // formatting is preserved instead of Slack/Notion's proprietary HTML.
-        const parser = editorRef.current?.storage?.markdown?.parser;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const parser = (editorRef.current?.storage as any)?.markdown?.parser;
         if (!parser) return false;
 
         event.preventDefault();
