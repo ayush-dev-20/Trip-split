@@ -3,14 +3,15 @@ import { useNavigate, useParams } from 'react-router';
 import { useTrip, useUpdateTrip } from '@/hooks/useTrips';
 import { useGroups } from '@/hooks/useGroups';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
+import PageHeader from '@/components/ui/PageHeader';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Select,
   SelectContent,
@@ -98,16 +99,8 @@ export default function EditTripPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Edit Trip</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Update your trip details</p>
-        </div>
-      </div>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <PageHeader title="Edit Trip" description="Update your trip details" back />
 
       {updateTrip.isError && (
         <Alert variant="destructive">
@@ -117,102 +110,106 @@ export default function EditTripPage() {
         </Alert>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Trip Details</CardTitle>
-          <CardDescription>Make changes to your trip below</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Name */}
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Card>
+          <CardContent className="p-5 space-y-5">
             <div className="space-y-2">
-              <Label>Trip Name *</Label>
+              <Label htmlFor="name">Trip Name <span className="text-destructive">*</span></Label>
               <Input
+                id="name"
                 value={form.name}
                 onChange={(e) => update('name', e.target.value)}
                 placeholder="e.g. Bali Adventure 2026"
                 required
+                className="h-10"
               />
             </div>
 
-            {/* Status */}
-            <div className="space-y-2">
-              <Label>Status</Label>
-              <Select value={form.status} onValueChange={(v) => update('status', v)}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUS_OPTIONS.map((s) => (
-                    <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={form.status} onValueChange={(v) => update('status', v)}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUS_OPTIONS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>{s.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Group <span className="text-muted-foreground font-normal">(optional)</span></Label>
+                <Select value={form.groupId} onValueChange={(v) => update('groupId', v === '__none__' ? '' : v)}>
+                  <SelectTrigger className="h-10">
+                    <SelectValue placeholder="No group" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">No group</SelectItem>
+                    {groups?.map((g) => (
+                      <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            {/* Group */}
             <div className="space-y-2">
-              <Label>Group <span className="text-muted-foreground font-normal">(optional)</span></Label>
-              <Select value={form.groupId} onValueChange={(v) => update('groupId', v === '__none__' ? '' : v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="No group" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No group</SelectItem>
-                  {groups?.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>{g.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Destination */}
-            <div className="space-y-2">
-              <Label>Destination</Label>
+              <Label htmlFor="destination">Destination</Label>
               <Input
+                id="destination"
                 value={form.destination}
                 onChange={(e) => update('destination', e.target.value)}
                 placeholder="e.g. Bali, Indonesia"
+                className="h-10"
               />
             </div>
 
-            {/* Description */}
             <div className="space-y-2">
-              <Label>Description</Label>
+              <Label htmlFor="description">Description</Label>
               <Textarea
+                id="description"
                 value={form.description}
                 onChange={(e) => update('description', e.target.value)}
-                placeholder="Brief description of the trip..."
-                className="min-h-[80px]"
+                placeholder="Brief description (optional)"
+                className="min-h-[80px] resize-none"
               />
             </div>
+          </CardContent>
+        </Card>
 
-            {/* Dates */}
-            <div className="grid grid-cols-2 gap-4">
+        <Card>
+          <CardContent className="p-5 space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label>Start Date</Label>
+                <Label htmlFor="startDate">Start Date</Label>
                 <Input
+                  id="startDate"
                   type="date"
                   value={form.startDate}
                   onChange={(e) => update('startDate', e.target.value)}
+                  className="h-10"
                 />
               </div>
               <div className="space-y-2">
-                <Label>End Date</Label>
+                <Label htmlFor="endDate">End Date</Label>
                 <Input
+                  id="endDate"
                   type="date"
                   value={form.endDate}
                   onChange={(e) => update('endDate', e.target.value)}
+                  min={form.startDate || undefined}
+                  className="h-10"
                 />
               </div>
             </div>
 
-            {/* Currency + Budget */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Base Currency</Label>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2 col-span-1">
+                <Label>Currency</Label>
                 <Select value={form.budgetCurrency} onValueChange={(v) => update('budgetCurrency', v)}>
-                  <SelectTrigger>
+                  <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -222,48 +219,46 @@ export default function EditTripPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-2">
-                <Label>Budget</Label>
+              <div className="space-y-2 col-span-2">
+                <Label htmlFor="budget">Budget <span className="text-muted-foreground font-normal">(optional)</span></Label>
                 <Input
+                  id="budget"
                   type="number"
                   value={form.budgetAmount}
                   onChange={(e) => update('budgetAmount', e.target.value)}
-                  placeholder="Optional"
+                  placeholder="0.00"
                   min="0"
                   step="0.01"
+                  className="h-10 tabular-nums"
                 />
               </div>
             </div>
 
-            {/* Public */}
-            <div className="flex items-center space-x-2">
+            <div className="flex items-start gap-3 pt-2">
               <Checkbox
                 id="isPublic"
                 checked={form.isPublic}
                 onCheckedChange={(checked) => update('isPublic', checked as boolean)}
+                className="mt-0.5"
               />
-              <Label htmlFor="isPublic" className="font-normal cursor-pointer">
-                Make this trip publicly viewable
-              </Label>
+              <div className="grid gap-0.5 leading-none">
+                <Label htmlFor="isPublic" className="font-medium cursor-pointer">Public trip</Label>
+                <p className="text-xs text-muted-foreground">Make this trip publicly viewable.</p>
+              </div>
             </div>
+          </CardContent>
+        </Card>
 
-            {/* Submit */}
-            <div className="flex gap-3 pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                className="flex-1"
-                onClick={() => navigate(-1)}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={updateTrip.isPending} className="flex-1">
-                {updateTrip.isPending ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+        <div className="flex gap-3 pt-2">
+          <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(-1)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={updateTrip.isPending} className="flex-1">
+            {updateTrip.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {updateTrip.isPending ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 }

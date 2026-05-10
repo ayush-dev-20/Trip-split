@@ -4,8 +4,10 @@ import { useCreateExpense } from '@/hooks/useExpenses';
 import { useTrip } from '@/hooks/useTrips';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
+import PageHeader from '@/components/ui/PageHeader';
+import UserAvatar from '@/components/ui/UserAvatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ArrowLeft, Sparkles, Camera, Users, AlertCircle, Mic, MicOff } from 'lucide-react';
+import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2 } from 'lucide-react';
 import { aiService } from '@/services/aiService';
 import type { ExpenseCategory, SplitType } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -16,7 +18,15 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { CATEGORY_STYLES } from '@/lib/categoryStyle';
 import { cn } from '@/lib/utils';
+
+const SPLIT_TYPES: { value: SplitType; label: string; hint: string }[] = [
+  { value: 'EQUAL',      label: 'Equal',       hint: 'Split evenly' },
+  { value: 'PERCENTAGE', label: 'Percentage',  hint: 'By %' },
+  { value: 'EXACT',      label: 'Exact',       hint: 'Custom amounts' },
+  { value: 'SHARES',     label: 'Shares',      hint: 'Proportional' },
+];
 
 const CATEGORIES: ExpenseCategory[] = [
   'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
@@ -209,56 +219,56 @@ export default function CreateExpensePage() {
   const update = (field: string, value: string) => setForm((prev) => ({ ...prev, [field]: value }));
 
   return (
-    <div className="max-w-2xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" asChild>
-          <Link to={`/trips/${tripId}/expenses`}><ArrowLeft className="h-5 w-5" /></Link>
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Add Expense</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{trip.name}</p>
-        </div>
-      </div>
+    <div className="max-w-2xl mx-auto space-y-5">
+      <PageHeader
+        title="Add Expense"
+        description={trip.name}
+        back={`/trips/${tripId}/expenses`}
+      />
 
       {/* AI Quick Entry */}
-      <Card>
+      <Card className="bg-gradient-to-br from-primary/5 to-info/5 border-primary/10">
         <CardContent className="p-4 space-y-3">
-          <p className="text-sm font-medium flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" /> AI Quick Entry
-          </p>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center justify-center h-7 w-7 rounded-lg bg-primary/10 text-primary">
+              <Sparkles className="h-3.5 w-3.5" />
+            </div>
+            <p className="text-sm font-semibold">AI Quick Entry</p>
+          </div>
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Input
                 value={nlpInput}
                 onChange={(e) => setNlpInput(e.target.value)}
-                placeholder={isListening ? 'Listening… speak now' : 'e.g. "Lunch at seafood restaurant $45 split equally"'}
-                className="pr-10"
+                placeholder={isListening ? 'Listening… speak now' : 'e.g. "Lunch $45 split equally"'}
+                className="pr-10 h-10 bg-background"
                 onKeyDown={(e) => e.key === 'Enter' && handleNLP()}
               />
-              {/* Mic button — Web Speech API */}
-              {'SpeechRecognition' in window || 'webkitSpeechRecognition' in window ? (
+              {('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) && (
                 <button
                   type="button"
                   onClick={toggleVoice}
-                  className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors ${isListening ? 'text-destructive animate-pulse' : 'text-muted-foreground hover:text-foreground'}`}
+                  className={cn(
+                    'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors',
+                    isListening ? 'text-destructive animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  )}
                   title={isListening ? 'Stop recording' : 'Speak your expense'}
                 >
                   {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
                 </button>
-              ) : null}
+              )}
             </div>
-            <Button variant="secondary" onClick={handleNLP} disabled={nlpLoading} className="shrink-0">
+            <Button variant="secondary" onClick={handleNLP} disabled={nlpLoading || !nlpInput.trim()} className="shrink-0 h-10">
+              {nlpLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               {nlpLoading ? 'Parsing…' : 'Parse'}
             </Button>
           </div>
-          <div className="flex gap-2">
-            <Button variant="ghost" size="sm" asChild className="cursor-pointer">
-              <label>
-                <Camera className="h-4 w-4 mr-2" /> Scan Receipt
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleReceiptScan(e.target.files[0])} />
-              </label>
-            </Button>
-          </div>
+          <Button variant="ghost" size="sm" asChild className="cursor-pointer h-7 -ml-1">
+            <label>
+              <Camera className="h-3.5 w-3.5" /> Scan Receipt
+              <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleReceiptScan(e.target.files[0])} />
+            </label>
+          </Button>
         </CardContent>
       </Card>
 
@@ -268,23 +278,41 @@ export default function CreateExpensePage() {
         </Alert>
       )}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Basic info */}
         <Card>
-          <CardContent className="p-6 space-y-5">
-            <div>
-              <Label>Title *</Label>
-              <Input value={form.title} onChange={(e) => update('title', e.target.value)} placeholder="What was this expense for?" required className="mt-1.5" />
+          <CardContent className="p-5 space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="title">Title <span className="text-destructive">*</span></Label>
+              <Input
+                id="title"
+                value={form.title}
+                onChange={(e) => update('title', e.target.value)}
+                placeholder="What was this expense for?"
+                required
+                className="h-10"
+              />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Amount *</Label>
-                <Input type="number" value={form.amount} onChange={(e) => update('amount', e.target.value)} placeholder="0.00" min="0.01" step="0.01" required className="mt-1.5" />
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-2 col-span-2">
+                <Label htmlFor="amount">Amount <span className="text-destructive">*</span></Label>
+                <Input
+                  id="amount"
+                  type="number"
+                  value={form.amount}
+                  onChange={(e) => update('amount', e.target.value)}
+                  placeholder="0.00"
+                  min="0.01"
+                  step="0.01"
+                  required
+                  className="h-10 tabular-nums text-base font-semibold"
+                />
               </div>
-              <div>
+              <div className="space-y-2 col-span-1">
                 <Label>Currency</Label>
                 <Select value={form.currency} onValueChange={(v) => update('currency', v)}>
-                  <SelectTrigger className="mt-1.5">
+                  <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -297,40 +325,52 @@ export default function CreateExpensePage() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <Label>Category *</Label>
+              <div className="space-y-2">
+                <Label>Category <span className="text-destructive">*</span></Label>
                 <Select value={form.category} onValueChange={(v) => update('category', v)}>
-                  <SelectTrigger className="mt-1.5">
+                  <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                    {CATEGORIES.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        <div className="flex items-center gap-2">
+                          {(() => {
+                            const Icon = CATEGORY_STYLES[c].icon;
+                            return <Icon className={cn('h-4 w-4', CATEGORY_STYLES[c].fg)} />;
+                          })()}
+                          {CATEGORY_STYLES[c].label}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div>
-                <Label>Date</Label>
-                <Input type="date" value={form.date} onChange={(e) => update('date', e.target.value)} className="mt-1.5 dark:[color-scheme:dark]" />
+              <div className="space-y-2">
+                <Label htmlFor="date">Date</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={form.date}
+                  onChange={(e) => update('date', e.target.value)}
+                  className="h-10 dark:[color-scheme:dark]"
+                />
               </div>
             </div>
 
             {/* Paid By */}
-            <div>
-              <Label className="flex items-center gap-1.5">
-                <Users className="h-3.5 w-3.5" /> Paid By *
-              </Label>
+            <div className="space-y-2">
+              <Label>Paid by <span className="text-destructive">*</span></Label>
               <Select value={form.paidById} onValueChange={(v) => update('paidById', v)}>
-                <SelectTrigger className="mt-1.5">
+                <SelectTrigger className="h-10">
                   <SelectValue placeholder="Who paid?" />
                 </SelectTrigger>
                 <SelectContent>
                   {members.map((m) => (
                     <SelectItem key={m.userId} value={m.userId}>
                       <div className="flex items-center gap-2">
-                        <div className="h-5 w-5 rounded-full bg-primary/10 flex items-center justify-center text-[10px] font-semibold text-primary">
-                          {m.user?.name?.charAt(0).toUpperCase()}
-                        </div>
-                        {m.user?.name}
+                        <UserAvatar name={m.user?.name} size="xs" />
+                        <span>{m.user?.name}</span>
                         {m.userId === currentUser?.id && (
                           <span className="text-xs text-muted-foreground">(You)</span>
                         )}
@@ -340,23 +380,33 @@ export default function CreateExpensePage() {
                 </SelectContent>
               </Select>
             </div>
+          </CardContent>
+        </Card>
 
-            <div>
-              <Label>Split Type</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-1.5">
-                {(['EQUAL', 'PERCENTAGE', 'EXACT', 'SHARES'] as SplitType[]).map((s) => (
-                  <Button
-                    key={s}
+        {/* Split */}
+        <Card>
+          <CardContent className="p-5 space-y-5">
+            <div className="space-y-2">
+              <Label>Split type</Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {SPLIT_TYPES.map((s) => (
+                  <button
+                    key={s.value}
                     type="button"
-                    variant="outline"
-                    onClick={() => handleSplitTypeChange(s)}
+                    onClick={() => handleSplitTypeChange(s.value)}
                     className={cn(
-                      'text-xs font-medium',
-                      form.splitType === s && 'border-primary bg-primary/10 text-primary'
+                      'flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-lg border-2 text-left transition-all active:scale-[0.98]',
+                      form.splitType === s.value
+                        ? 'border-primary bg-primary/5'
+                        : 'border-border hover:border-muted-foreground/30'
                     )}
                   >
-                    {s}
-                  </Button>
+                    <span className={cn(
+                      'text-xs font-semibold',
+                      form.splitType === s.value && 'text-primary'
+                    )}>{s.label}</span>
+                    <span className="text-[10px] text-muted-foreground leading-tight">{s.hint}</span>
+                  </button>
                 ))}
               </div>
             </div>
@@ -540,21 +590,34 @@ export default function CreateExpensePage() {
               </div>
             )}
 
-            <div>
-              <Label>Notes</Label>
-              <Textarea value={form.description} onChange={(e) => update('description', e.target.value)} placeholder="Optional notes..." className="mt-1.5 min-h-[60px]" />
-            </div>
+          </CardContent>
+        </Card>
 
-            <div className="flex gap-3 pt-2">
-              <Button variant="secondary" asChild className="flex-1">
-                <Link to={`/trips/${tripId}/expenses`}>Cancel</Link>
-              </Button>
-              <Button type="submit" disabled={createExpense.isPending} className="flex-1">
-                {createExpense.isPending ? 'Adding...' : 'Add Expense'}
-              </Button>
+        {/* Notes */}
+        <Card>
+          <CardContent className="p-5">
+            <div className="space-y-2">
+              <Label htmlFor="description">Notes</Label>
+              <Textarea
+                id="description"
+                value={form.description}
+                onChange={(e) => update('description', e.target.value)}
+                placeholder="Optional notes..."
+                className="min-h-[80px] resize-none"
+              />
             </div>
           </CardContent>
         </Card>
+
+        <div className="flex gap-3">
+          <Button variant="outline" asChild className="flex-1">
+            <Link to={`/trips/${tripId}/expenses`}>Cancel</Link>
+          </Button>
+          <Button type="submit" disabled={createExpense.isPending || !form.title.trim() || !form.amount} className="flex-1">
+            {createExpense.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {createExpense.isPending ? 'Adding…' : 'Add Expense'}
+          </Button>
+        </div>
       </form>
     </div>
   );

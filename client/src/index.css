@@ -4,58 +4,88 @@
 
 @layer base {
   :root {
-    --background: 0 0% 98%;
-    --foreground: 222.2 84% 4.9%;
+    /* Surfaces */
+    --background: 210 40% 99%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --chart-1: 221 83% 53%;
-    --chart-2: 280 65% 60%;
-    --chart-3: 160 60% 45%;
-    --chart-4: 30 80% 55%;
+    --popover-foreground: 222 47% 11%;
+
+    /* Brand — Sky blue (travel/adventure) */
+    --primary: 217 91% 55%;
+    --primary-foreground: 0 0% 100%;
+
+    /* Subtle */
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 14% 45%;
+    --accent: 210 40% 95%;
+    --accent-foreground: 222 47% 11%;
+
+    /* Semantic */
+    --destructive: 0 75% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 70% 42%;
+    --success-foreground: 0 0% 100%;
+    --warning: 32 95% 50%;
+    --warning-foreground: 0 0% 100%;
+    --info: 199 89% 48%;
+    --info-foreground: 0 0% 100%;
+
+    /* Lines */
+    --border: 214 30% 90%;
+    --input: 214 30% 90%;
+    --ring: 217 91% 55%;
+
+    /* Charts */
+    --chart-1: 217 91% 55%;
+    --chart-2: 270 70% 60%;
+    --chart-3: 142 70% 42%;
+    --chart-4: 32 95% 50%;
     --chart-5: 340 75% 55%;
-    --radius: 0.625rem;
+
+    /* Geometry */
+    --radius: 0.75rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 48%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 280 65% 60%;
-    --chart-3: 160 60% 45%;
-    --chart-4: 30 80% 55%;
-    --chart-5: 340 75% 55%;
+    --background: 222 47% 6%;
+    --foreground: 210 40% 96%;
+    --card: 222 47% 8%;
+    --card-foreground: 210 40% 96%;
+    --popover: 222 47% 8%;
+    --popover-foreground: 210 40% 96%;
+
+    --primary: 217 91% 60%;
+    --primary-foreground: 222 47% 11%;
+
+    --secondary: 217 32% 16%;
+    --secondary-foreground: 210 40% 96%;
+    --muted: 217 32% 14%;
+    --muted-foreground: 215 16% 64%;
+    --accent: 217 32% 18%;
+    --accent-foreground: 210 40% 96%;
+
+    --destructive: 0 70% 55%;
+    --destructive-foreground: 0 0% 100%;
+    --success: 142 65% 45%;
+    --success-foreground: 0 0% 100%;
+    --warning: 32 95% 55%;
+    --warning-foreground: 0 0% 100%;
+    --info: 199 85% 55%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 217 32% 18%;
+    --input: 217 32% 18%;
+    --ring: 217 91% 60%;
+
+    --chart-1: 217 91% 60%;
+    --chart-2: 270 70% 65%;
+    --chart-3: 142 65% 50%;
+    --chart-4: 32 95% 55%;
+    --chart-5: 340 75% 60%;
   }
 
   * {
@@ -63,7 +93,13 @@
   }
 
   body {
-    @apply bg-background text-foreground transition-colors duration-200;
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight;
   }
 }
 
@@ -122,6 +158,93 @@ html {
 .ProseMirror {
   outline: none;
   min-height: 100%;
+}
+
+/* Headings */
+.ProseMirror h1 {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  margin: 1.25rem 0 0.5rem;
+  color: hsl(var(--foreground));
+}
+.ProseMirror h2 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 1rem 0 0.5rem;
+  color: hsl(var(--foreground));
+}
+.ProseMirror h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin: 0.875rem 0 0.375rem;
+  color: hsl(var(--foreground));
+}
+.ProseMirror h4 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+}
+.ProseMirror h5,
+.ProseMirror h6 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0.625rem 0 0.25rem;
+}
+
+/* Paragraphs */
+.ProseMirror p {
+  margin: 0.25rem 0;
+  line-height: 1.6;
+}
+
+/* Lists */
+.ProseMirror ul:not([data-type="taskList"]) {
+  list-style: disc;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.ProseMirror ol {
+  list-style: decimal;
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+.ProseMirror li {
+  margin: 0.2rem 0;
+  line-height: 1.6;
+}
+.ProseMirror li > p {
+  margin: 0;
+}
+
+/* Nested lists */
+.ProseMirror ul ul,
+.ProseMirror ol ul {
+  list-style: circle;
+}
+.ProseMirror ul ul ul,
+.ProseMirror ol ol ul {
+  list-style: square;
+}
+
+/* Inline formatting */
+.ProseMirror strong {
+  font-weight: 600;
+}
+.ProseMirror em {
+  font-style: italic;
+}
+.ProseMirror s {
+  text-decoration: line-through;
+}
+.ProseMirror code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  background: hsl(var(--muted));
+  padding: 0.1em 0.3em;
+  border-radius: 0.25rem;
 }
 
 .ProseMirror p.is-editor-empty:first-child::before {

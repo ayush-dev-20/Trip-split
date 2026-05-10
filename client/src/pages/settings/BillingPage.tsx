@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingService } from '@/services/billingService';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
-import { Check, Zap, Crown, Building2, ArrowDown } from 'lucide-react';
+import PageHeader from '@/components/ui/PageHeader';
+import { Check, Zap, Crown, Building2, ArrowDown, Loader2, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -111,56 +112,55 @@ export default function BillingPage() {
   if (isLoading) return <PageLoader />;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold">Plans</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Choose the plan that fits your travel style
-        </p>
-      </div>
+    <div className="max-w-5xl mx-auto space-y-6">
+      <PageHeader
+        title="Plans & Billing"
+        description="Choose the plan that fits your travel style"
+        back="/settings"
+      />
 
       {/* Current Subscription */}
       {subscription && currentTier !== 'FREE' && (
-        <Card className="bg-primary/5 border-primary/20">
-          <CardContent className="p-5 flex items-center justify-between">
-            <div>
-              <p className="text-sm text-muted-foreground">Current Plan</p>
-              <p className="text-xl font-bold text-primary">{subscription.tier}</p>
+        <Card className="bg-gradient-to-br from-primary/5 to-info/5 border-primary/20">
+          <CardContent className="p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Current plan</p>
+                <p className="text-lg font-bold">{subscription.tier}</p>
+              </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowDowngrade(true)}
-            >
-              <ArrowDown className="h-4 w-4 mr-1.5" />
-              Downgrade to Free
+            <Button variant="outline" size="sm" onClick={() => setShowDowngrade(true)}>
+              <ArrowDown className="h-4 w-4" /> Downgrade to Free
             </Button>
           </CardContent>
         </Card>
       )}
 
       {/* Plan Cards */}
-      <div className="grid md:grid-cols-3 gap-6">
+      <div className="grid md:grid-cols-3 gap-4 sm:gap-5 pt-3">
         {plans.map((plan, i) => (
           <motion.div
             key={plan.tier}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.1 }}
+            transition={{ delay: i * 0.06 }}
+            className="relative"
           >
-            <Card className={cn('flex flex-col relative h-full', plan.color)}>
-              {plan.popular && (
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2">
-                  Most Popular
-                </Badge>
-              )}
-
+            {plan.popular && (
+              <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10 shadow-sm">
+                Most Popular
+              </Badge>
+            )}
+            <Card className={cn('flex flex-col h-full', plan.color)}>
               <CardContent className="p-6 flex flex-col h-full">
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-center gap-3 mb-5">
                   <div className={cn(
-                    'h-10 w-10 rounded-xl flex items-center justify-center',
+                    'h-11 w-11 rounded-xl flex items-center justify-center',
                     plan.tier === 'PRO' ? 'bg-primary/10 text-primary' :
-                    plan.tier === 'TEAM' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600' :
+                    plan.tier === 'TEAM' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' :
                     'bg-muted text-muted-foreground'
                   )}>
                     <plan.icon className="h-5 w-5" />
@@ -168,7 +168,7 @@ export default function BillingPage() {
                   <div>
                     <h3 className="font-semibold">{plan.name}</h3>
                     <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-bold">{plan.price}</span>
+                      <span className="text-2xl font-bold tracking-tight">{plan.price}</span>
                       <span className="text-xs text-muted-foreground">{plan.period}</span>
                     </div>
                   </div>
@@ -176,22 +176,18 @@ export default function BillingPage() {
 
                 <ul className="space-y-2.5 flex-1 mb-6">
                   {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-muted-foreground">
-                      <Check className="h-4 w-4 text-green-500 shrink-0 mt-0.5" />
-                      {feature}
+                    <li key={feature} className="flex items-start gap-2 text-sm">
+                      <Check className="h-4 w-4 text-success shrink-0 mt-0.5" />
+                      <span className="text-foreground/80">{feature}</span>
                     </li>
                   ))}
                 </ul>
 
                 {currentTier === plan.tier ? (
-                  <Button variant="secondary" disabled className="w-full">Current Plan</Button>
+                  <Button variant="outline" disabled className="w-full">Current Plan</Button>
                 ) : plan.tier === 'FREE' ? (
                   currentTier !== 'FREE' ? (
-                    <Button
-                      variant="outline"
-                      className="w-full"
-                      onClick={() => setShowDowngrade(true)}
-                    >
+                    <Button variant="outline" className="w-full" onClick={() => setShowDowngrade(true)}>
                       Downgrade
                     </Button>
                   ) : (
@@ -207,9 +203,8 @@ export default function BillingPage() {
                     disabled={upgradeMutation.isPending}
                     className="w-full"
                   >
-                    {upgradingTier === plan.tier && upgradeMutation.isPending
-                      ? 'Upgrading...'
-                      : `Upgrade to ${plan.name}`}
+                    {upgradingTier === plan.tier && upgradeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {upgradingTier === plan.tier && upgradeMutation.isPending ? 'Upgrading…' : `Upgrade to ${plan.name}`}
                   </Button>
                 )}
               </CardContent>
@@ -218,7 +213,6 @@ export default function BillingPage() {
         ))}
       </div>
 
-      {/* Downgrade Confirmation */}
       <ConfirmDialog
         open={showDowngrade}
         onOpenChange={setShowDowngrade}

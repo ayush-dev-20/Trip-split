@@ -103,11 +103,11 @@ export default function DashboardPage() {
   const StepIcon = current.icon;
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       {/* Greeting */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">
+          <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">
             Welcome back, {user?.name?.split(' ')[0]} 👋
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
@@ -115,12 +115,12 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => { setGuideStep(0); setGuideOpen(true); }} className="flex-1 sm:flex-none">
-            <BookOpen className="h-4 w-4 mr-2" /> Quick Guide
+          <Button variant="outline" onClick={() => { setGuideStep(0); setGuideOpen(true); }} className="hidden sm:inline-flex">
+            <BookOpen className="h-4 w-4" /> Quick Guide
           </Button>
           <Button asChild className="flex-1 sm:flex-none">
             <Link to="/trips/new">
-              <Plus className="h-4 w-4 mr-2" /> New Trip
+              <Plus className="h-4 w-4" /> New Trip
             </Link>
           </Button>
         </div>

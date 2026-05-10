@@ -173,10 +173,10 @@ export default function AnalyticsPage() {
   const budgetBarColor = budgetRatio <= 0.6 ? 'bg-green-500' : budgetRatio <= 0.85 ? 'bg-amber-500' : 'bg-red-500';
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-7">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold">Analytics</h1>
+        <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">Analytics</h1>
         <p className="text-sm text-muted-foreground mt-1">Deep dive into your spending patterns</p>
       </div>
 

@@ -84,13 +84,16 @@ export default function AIAssistantPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
-          <Sparkles className="h-6 w-6 text-primary" /> AI Assistant
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Powered by AI to help you manage expenses smarter
-        </p>
+      <div className="flex items-start gap-3">
+        <div className="flex items-center justify-center h-11 w-11 rounded-xl bg-gradient-to-br from-primary/15 to-info/15 text-primary shrink-0">
+          <Sparkles className="h-5 w-5" />
+        </div>
+        <div>
+          <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">AI Assistant</h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Smart help for managing trip expenses
+          </p>
+        </div>
       </div>
 
       <Tabs defaultValue="chat">

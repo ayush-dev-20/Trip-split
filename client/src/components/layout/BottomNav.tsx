@@ -30,13 +30,16 @@ export default function BottomNav() {
               <>
                 <div
                   className={cn(
-                    'flex items-center justify-center w-12 h-7 rounded-full transition-colors duration-200',
-                    isActive ? 'bg-primary/15' : ''
+                    'flex items-center justify-center w-12 h-7 rounded-full transition-all duration-200',
+                    isActive ? 'bg-primary/15 scale-105' : 'scale-100'
                   )}
                 >
-                  <Icon className="h-[19px] w-[19px]" strokeWidth={isActive ? 2.25 : 1.75} />
+                  <Icon className="h-[19px] w-[19px]" strokeWidth={isActive ? 2.5 : 1.75} />
                 </div>
-                <span className="text-[10px] font-medium leading-none">{label}</span>
+                <span className={cn(
+                  'text-[10px] font-medium leading-none transition-all',
+                  isActive && 'font-semibold'
+                )}>{label}</span>
               </>
             )}
           </NavLink>

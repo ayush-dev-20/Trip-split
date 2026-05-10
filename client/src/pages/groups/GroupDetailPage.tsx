@@ -2,12 +2,16 @@ import { useParams, Link, useNavigate } from 'react-router';
 import { useGroup, useDeleteGroup } from '@/hooks/useGroups';
 import { useTrips } from '@/hooks/useTrips';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
-import { ArrowLeft, Users, Map, Plus, Copy, Trash2 } from 'lucide-react';
+import PageHeader from '@/components/ui/PageHeader';
+import SectionHeading from '@/components/ui/SectionHeading';
+import EmptyState from '@/components/ui/EmptyState';
+import UserAvatar from '@/components/ui/UserAvatar';
+import { Users, Map, Plus, Copy, Trash2, Loader2, Check, MapPin } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { cn } from '@/lib/utils';
 
 export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -34,85 +38,113 @@ export default function GroupDetailPage() {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate('/groups')}>
-            <ArrowLeft className="h-5 w-5" />
+    <div className="space-y-5">
+      <PageHeader
+        title={group.name}
+        description={group.description}
+        back="/groups"
+        actions={
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={handleDelete}
+            disabled={deleteGroup.isPending}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10"
+            aria-label="Delete group"
+          >
+            {deleteGroup.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
           </Button>
-          <div>
-            <h1 className="text-2xl font-bold">{group.name}</h1>
-            {group.description && <p className="text-sm text-muted-foreground mt-0.5">{group.description}</p>}
-          </div>
-        </div>
-        <Button variant="ghost" size="icon" onClick={handleDelete} className="text-destructive hover:text-destructive">
-          <Trash2 className="h-4 w-4" />
-        </Button>
-      </div>
+        }
+      />
 
       {/* Invite Code */}
-      <Card>
-        <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
+      <Card className="bg-gradient-to-br from-primary/5 to-info/5 border-primary/10">
+        <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
           <div>
-            <p className="text-xs text-muted-foreground">Invite Code</p>
-            <p className="text-lg font-mono font-semibold">{group.inviteCode}</p>
+            <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Invite Code</p>
+            <p className="text-xl sm:text-2xl font-mono font-bold mt-0.5 tracking-wide">{group.inviteCode}</p>
           </div>
-          <Button variant="secondary" onClick={copyCode} className="w-full sm:w-auto">
-            <Copy className="h-4 w-4 mr-2" /> {copied ? 'Copied!' : 'Copy'}
+          <Button variant={copied ? 'success' : 'default'} onClick={copyCode}>
+            {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+            {copied ? 'Copied!' : 'Copy Code'}
           </Button>
         </CardContent>
       </Card>
 
       {/* Members */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3">
-          Members ({group.members?.length ?? 0})
-        </h2>
+      <section>
+        <SectionHeading title={`Members (${group.members?.length ?? 0})`} />
         <div className="grid gap-2 sm:grid-cols-2">
           {group.members?.map((m) => (
             <Card key={m.id}>
               <CardContent className="p-3 flex items-center gap-3">
-                <Avatar className="h-9 w-9">
-                  <AvatarFallback className="bg-primary/10 text-primary text-sm font-semibold">
-                    {m.user?.name?.charAt(0) ?? '?'}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0">
+                <UserAvatar name={m.user?.name} size="md" />
+                <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{m.user?.name}</p>
-                  <p className="text-xs text-muted-foreground">{m.user?.email}</p>
+                  <p className="text-xs text-muted-foreground truncate">{m.user?.email}</p>
                 </div>
-                {m.role === 'ADMIN' && <Badge variant="secondary" className="text-[10px] ml-auto">Admin</Badge>}
+                {m.role === 'ADMIN' && (
+                  <Badge variant="secondary" className="text-[10px] shrink-0">Admin</Badge>
+                )}
               </CardContent>
             </Card>
           ))}
         </div>
-      </div>
+      </section>
 
-      {/* Group Trips */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-lg font-semibold">Trips</h2>
-          <Button asChild size="sm">
-            <Link to="/trips/new"><Plus className="h-4 w-4 mr-2" /> New Trip</Link>
-          </Button>
-        </div>
+      {/* Trips */}
+      <section>
+        <SectionHeading
+          title="Trips"
+          action={
+            <Button asChild size="sm">
+              <Link to="/trips/new">
+                <Plus className="h-4 w-4" /> New Trip
+              </Link>
+            </Button>
+          }
+        />
         {trips.length === 0 ? (
-          <Card>
-            <CardContent className="p-8 text-center">
-              <Map className="h-8 w-8 text-muted-foreground/40 mx-auto mb-2" />
-              <p className="text-sm text-muted-foreground">No trips in this group yet</p>
-            </CardContent>
-          </Card>
+          <EmptyState
+            icon={<Map className="h-7 w-7" />}
+            title="No trips yet"
+            description="Create the first trip for this group."
+            action={
+              <Button asChild>
+                <Link to="/trips/new">
+                  <Plus className="h-4 w-4" /> Create Trip
+                </Link>
+              </Button>
+            }
+          />
         ) : (
           <div className="grid gap-3 sm:grid-cols-2">
             {trips.map((trip) => (
               <Link key={trip.id} to={`/trips/${trip.id}`}>
-                <Card className="hover:shadow-sm transition-shadow">
+                <Card className="hover:shadow-card-hover transition-shadow">
                   <CardContent className="p-4">
-                    <h3 className="font-medium">{trip.name}</h3>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                      <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {trip._count?.members ?? 0}</span>
-                      <span>{trip.status}</span>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <h3 className="font-semibold text-sm flex-1 truncate">{trip.name}</h3>
+                      <Badge variant="outline" className={cn(
+                        'text-[10px] shrink-0',
+                        trip.status === 'ACTIVE' && 'bg-success/10 text-success border-success/20',
+                        trip.status === 'UPCOMING' && 'bg-info/10 text-info border-info/20',
+                      )}>
+                        {trip.status}
+                      </Badge>
+                    </div>
+                    {trip.destination && (
+                      <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
+                        <MapPin className="h-3 w-3" />
+                        {trip.destination}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground border-t pt-2">
+                      <span className="flex items-center gap-1">
+                        <Users className="h-3 w-3" />
+                        {trip._count?.members ?? 0}
+                      </span>
+                      <span>{trip._count?.expenses ?? 0} expenses</span>
                     </div>
                   </CardContent>
                 </Card>
@@ -120,7 +152,7 @@ export default function GroupDetailPage() {
             ))}
           </div>
         )}
-      </div>
+      </section>
     </div>
   );
 }

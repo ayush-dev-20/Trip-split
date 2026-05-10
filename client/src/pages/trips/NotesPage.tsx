@@ -205,6 +205,14 @@ function EditorToolbar({ editor }: { editor: ReturnType<typeof useEditor> }) {
   );
 }
 
+// Strip markdown list prefixes that got baked into li text during paste
+// e.g. <li><p>1. Foo</p></li>  →  <li><p>Foo</p></li>
+function sanitizeNoteContent(html: string): string {
+  return html
+    .replace(/(<li[^>]*><p[^>]*>)\s*\d+\.\s+/g, '$1')
+    .replace(/(<li[^>]*><p[^>]*>)\s*[-*]\s+/g, '$1');
+}
+
 // ── Editor pane ───────────────────────────────────────────────────────────────
 
 function NoteEditor({
@@ -219,6 +227,8 @@ function NoteEditor({
   const [title, setTitle] = useState(note.title);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { mutate: updateNote } = useUpdateNote(tripId);
+  // Ref so the handlePaste closure can access the editor after creation
+  const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
   const scheduleAutoSave = useCallback(
     (payload: { title?: string; content?: string }) => {
@@ -244,14 +254,45 @@ function NoteEditor({
       Markdown.configure({
         html: true,
         transformPastedText: true,
-        transformCopiedText: false,
+        transformCopiedText: true,
       }),
     ],
-    content: note.content || '',
+    content: sanitizeNoteContent(note.content || ''),
+    editorProps: {
+      handlePaste(view, event) {
+        const html = event.clipboardData?.getData('text/html') ?? '';
+        const plain = event.clipboardData?.getData('text/plain') ?? '';
+
+        // Internal tiptap copy — has ProseMirror slice marker, pass through
+        if (html.includes('data-pm-slice')) return false;
+        // Nothing useful to work with
+        if (!plain.trim()) return false;
+
+        // External paste (Slack, Notion, browser, etc.):
+        // Force the plain text through tiptap-markdown's parser so markdown
+        // formatting is preserved instead of Slack/Notion's proprietary HTML.
+        const parser = editorRef.current?.storage?.markdown?.parser;
+        if (!parser) return false;
+
+        event.preventDefault();
+        try {
+          const doc = parser.parse(plain);
+          view.dispatch(
+            view.state.tr.replaceSelection(doc.slice(0, doc.content.size))
+          );
+        } catch {
+          return false;
+        }
+        return true;
+      },
+    },
     onUpdate: ({ editor }) => {
       scheduleAutoSave({ content: editor.getHTML() });
     },
   });
+
+  // Keep ref in sync so handlePaste can access the live editor instance
+  useEffect(() => { editorRef.current = editor; }, [editor]);
 
   // Flush auto-save on unmount
   useEffect(() => {
