@@ -32,7 +32,18 @@ export function useUpdateCheckpoint(tripId: string) {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: Parameters<typeof checkpointService.updateCheckpoint>[2] }) =>
       checkpointService.updateCheckpoint(tripId, id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['checkpoints', tripId] }),
+    onMutate: async ({ id, data }) => {
+      await qc.cancelQueries({ queryKey: ['checkpoints', tripId] });
+      const previous = qc.getQueryData(['checkpoints', tripId]);
+      qc.setQueryData(['checkpoints', tripId], (old: { id: string }[] | undefined) =>
+        old?.map(cp => cp.id === id ? { ...cp, ...data } : cp) ?? []
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['checkpoints', tripId], ctx.previous);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['checkpoints', tripId] }),
   });
 }
 

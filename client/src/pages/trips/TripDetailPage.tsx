@@ -79,6 +79,7 @@ export default function TripDetailPage() {
   const [cpFormOpen, setCpFormOpen] = useState<{ defaultDay: number | null; title: string } | null>(null);
   const [detailCp, setDetailCp] = useState<typeof checkpoints[0] | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  const [pendingCheckpointIds, setPendingCheckpointIds] = useState<Set<string>>(new Set());
 
   const openCpForm = (defaultDay: number | null, title: string) =>
     setCpFormOpen({ defaultDay, title });
@@ -578,12 +579,19 @@ export default function TripDetailPage() {
                         >
                           <CardContent className="p-3 flex items-center gap-3">
                             <button
-                              onClick={(e) => {
+                              onPointerDown={(e) => {
                                 e.stopPropagation();
-                                updateCheckpoint.mutate({ id: cp.id, data: { isVisited: !cp.isVisited } });
+                                e.preventDefault();
+                                if (pendingCheckpointIds.has(cp.id)) return;
+                                setPendingCheckpointIds(prev => new Set(prev).add(cp.id));
+                                updateCheckpoint.mutate(
+                                  { id: cp.id, data: { isVisited: !cp.isVisited } },
+                                  { onSettled: () => setPendingCheckpointIds(prev => { const s = new Set(prev); s.delete(cp.id); return s; }) }
+                                );
                               }}
-                              disabled={updateCheckpoint.isPending}
-                              className="shrink-0"
+                              disabled={pendingCheckpointIds.has(cp.id)}
+                              style={{ touchAction: 'manipulation' }}
+                              className="shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center -mx-1"
                               aria-label={cp.isVisited ? 'Mark not visited' : 'Mark visited'}
                             >
                               {cp.isVisited ? (
@@ -753,16 +761,21 @@ export default function TripDetailPage() {
               <Button
                 variant={detailCp?.isVisited ? 'secondary' : 'success'}
                 size="sm"
-                disabled={updateCheckpoint.isPending}
+                disabled={detailCp ? pendingCheckpointIds.has(detailCp.id) : false}
+                style={{ touchAction: 'manipulation' }}
                 onClick={() => {
                   if (!detailCp) return;
+                  setPendingCheckpointIds(prev => new Set(prev).add(detailCp.id));
                   updateCheckpoint.mutate(
                     { id: detailCp.id, data: { isVisited: !detailCp.isVisited } },
-                    { onSuccess: () => setDetailCp((prev) => prev ? { ...prev, isVisited: !prev.isVisited } : null) }
+                    {
+                      onSuccess: () => setDetailCp((prev) => prev ? { ...prev, isVisited: !prev.isVisited } : null),
+                      onSettled: () => setPendingCheckpointIds(prev => { const s = new Set(prev); s.delete(detailCp.id); return s; }),
+                    }
                   );
                 }}
               >
-                {updateCheckpoint.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {detailCp && pendingCheckpointIds.has(detailCp.id) && <Loader2 className="h-4 w-4 animate-spin" />}
                 {detailCp?.isVisited ? 'Mark Not Visited' : 'Mark Visited'}
               </Button>
               <Button
