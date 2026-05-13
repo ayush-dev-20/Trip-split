@@ -26,7 +26,7 @@ import {
   MapPin, Calendar, Plus, Receipt, ArrowLeft,
   MoreVertical, Trash2, Settings, Share2, ArrowRightLeft, Pencil, Download,
   Sparkles, CheckCircle2, Circle, MapPinned, X, NotebookPen, Loader2,
-  Wallet, FileText, Printer,
+  Wallet, Printer,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -164,16 +164,6 @@ export default function TripDetailPage() {
       setItinerary('Failed to generate itinerary. Please try again.');
       setPlanStage(null);
     }
-  };
-
-  const downloadItineraryAsText = () => {
-    const blob = new Blob([itinerary], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${trip?.name.replace(/\s+/g, '-') ?? 'trip'}-itinerary.md`;
-    a.click();
-    URL.revokeObjectURL(url);
   };
 
   const downloadItineraryAsPdf = () => {
