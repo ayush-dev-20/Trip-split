@@ -256,6 +256,10 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to generate itinerary.' })}\n\n`);
   }
 
+  // Signal that itinerary streaming is done so the client can advance its step indicator
+  // before we begin the (slower) checkpoint generation call.
+  res.write(`data: ${JSON.stringify({ type: 'itinerary_complete' })}\n\n`);
+
   const checkpoints = await aiService.generateCheckpointSuggestions({ destination: trip.destination, days, budget, currency, travelers });
   res.write(`data: ${JSON.stringify({ type: 'checkpoints', data: checkpoints })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);

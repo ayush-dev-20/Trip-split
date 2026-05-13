@@ -84,15 +84,18 @@ export const aiService = {
   /**
    * Streaming version of planForTrip — streams itinerary markdown tokens, then fires
    * `onCheckpoints` with the AI-suggested checkpoint list before calling `onDone`.
+   * `onItineraryComplete` fires once itinerary streaming ends, before checkpoint generation starts.
    */
   planForTripStream: async (
     tripId: string,
     onChunk: (text: string) => void,
     onCheckpoints: (data: SuggestedCheckpoint[]) => void,
-    onDone?: () => void
+    onDone?: () => void,
+    onItineraryComplete?: () => void
   ): Promise<void> => {
     for await (const event of streamSSE('/api/ai/trip-planner-for-trip/stream', { tripId })) {
       if (event.type === 'chunk') onChunk(event.text as string);
+      else if (event.type === 'itinerary_complete') onItineraryComplete?.();
       else if (event.type === 'checkpoints') onCheckpoints(event.data as SuggestedCheckpoint[]);
       else if (event.type === 'done') onDone?.();
     }

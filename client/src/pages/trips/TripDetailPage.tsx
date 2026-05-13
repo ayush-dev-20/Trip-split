@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
+import type { Components } from 'react-markdown';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useTrip, useDeleteTrip, useUpdateTrip } from '@/hooks/useTrips';
 import { useExpenses } from '@/hooks/useExpenses';
@@ -25,7 +26,7 @@ import {
   MapPin, Calendar, Plus, Receipt, ArrowLeft,
   MoreVertical, Trash2, Settings, Share2, ArrowRightLeft, Pencil, Download,
   Sparkles, CheckCircle2, Circle, MapPinned, X, NotebookPen, Loader2,
-  Wallet,
+  Wallet, FileText, Printer,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -52,6 +53,21 @@ import { cn } from '@/lib/utils';
 import type { SuggestedCheckpoint } from '@/types';
 import ReactMarkdown from 'react-markdown';
 
+const mdComponents: Components = {
+  h1: ({ children }) => <h1 className="text-lg font-bold mt-1 mb-3 text-foreground leading-snug">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-semibold mt-5 mb-2 pb-1 border-b border-border text-foreground">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>,
+  p: ({ children }) => <p className="text-sm leading-relaxed mb-2.5 text-foreground/90">{children}</p>,
+  ul: ({ children }) => <ul className="text-sm mb-3 ml-4 space-y-1 list-disc">{children}</ul>,
+  ol: ({ children }) => <ol className="text-sm mb-3 ml-4 space-y-1 list-decimal">{children}</ol>,
+  li: ({ children }) => <li className="leading-relaxed text-foreground/90">{children}</li>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  em: ({ children }) => <em className="italic text-foreground/80">{children}</em>,
+  blockquote: ({ children }) => <blockquote className="border-l-2 border-primary/50 pl-3 italic text-muted-foreground my-3">{children}</blockquote>,
+  code: ({ children }) => <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+  hr: () => <hr className="border-border my-4" />,
+};
+
 export default function TripDetailPage() {
   const { tripId } = useParams<{ tripId: string }>();
   const navigate = useNavigate();
@@ -72,10 +88,11 @@ export default function TripDetailPage() {
   const [deleteAllCheckpointsOpen, setDeleteAllCheckpointsOpen] = useState(false);
   const [deleteDayOpen, setDeleteDayOpen] = useState<number | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
-  const [planning, setPlanning] = useState(false);
+  const [planStage, setPlanStage] = useState<'streaming' | 'checkpoints' | null>(null);
   const [itinerary, setItinerary] = useState('');
   const [suggestions, setSuggestions] = useState<SuggestedCheckpoint[]>([]);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
+  const itineraryRef = useRef<HTMLDivElement>(null);
   const [cpFormOpen, setCpFormOpen] = useState<{ defaultDay: number | null; title: string } | null>(null);
   const [detailCp, setDetailCp] = useState<typeof checkpoints[0] | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
@@ -128,7 +145,7 @@ export default function TripDetailPage() {
   };
 
   const handlePlanItinerary = async () => {
-    setPlanning(true);
+    setPlanStage('streaming');
     setItinerary('');
     setPlanOpen(true);
     setSuggestions([]);
@@ -140,12 +157,52 @@ export default function TripDetailPage() {
           setSuggestions(cps);
           setSelectedSuggestions(new Set(cps.map((_, i) => i)));
         },
-        () => setPlanning(false)
+        () => setPlanStage(null),
+        () => setPlanStage('checkpoints'),
       );
     } catch {
       setItinerary('Failed to generate itinerary. Please try again.');
-      setPlanning(false);
+      setPlanStage(null);
     }
+  };
+
+  const downloadItineraryAsText = () => {
+    const blob = new Blob([itinerary], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${trip?.name.replace(/\s+/g, '-') ?? 'trip'}-itinerary.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const downloadItineraryAsPdf = () => {
+    const content = itineraryRef.current?.innerHTML ?? '';
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write(`<!DOCTYPE html>
+<html><head>
+<title>${trip?.name ?? 'Trip'} — Itinerary</title>
+<style>
+  body{font-family:system-ui,-apple-system,sans-serif;max-width:800px;margin:40px auto;padding:0 24px;line-height:1.7;color:#111}
+  h1{font-size:1.6rem;font-weight:700;margin:0 0 1rem}
+  h2{font-size:1.2rem;font-weight:600;margin:2rem 0 0.5rem;border-bottom:1px solid #e5e7eb;padding-bottom:0.4rem}
+  h3{font-size:1rem;font-weight:600;margin:1.5rem 0 0.4rem}
+  ul,ol{padding-left:1.5rem;margin:0 0 1rem}
+  li{margin:0.3rem 0}
+  p{margin:0 0 0.75rem}
+  strong{font-weight:600}
+  hr{border:none;border-top:1px solid #e5e7eb;margin:1.5rem 0}
+  blockquote{border-left:3px solid #6366f1;padding-left:1rem;color:#555;margin:1rem 0}
+  @media print{body{margin:20px}}
+</style>
+</head><body>
+<h1>${trip?.name ?? 'Trip'} — Travel Itinerary</h1>
+${content}
+</body></html>`);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 300);
   };
 
   const toggleSuggestion = (idx: number) => {
@@ -526,9 +583,9 @@ export default function TripDetailPage() {
             description="Plan your trip with destinations, activities, and stops."
             action={
               trip.destination && (
-                <Button variant="outline" onClick={handlePlanItinerary} disabled={planning}>
-                  {planning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                  {planning ? 'Generating…' : 'Generate with AI'}
+                <Button variant="outline" onClick={handlePlanItinerary} disabled={planStage !== null}>
+                  {planStage !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                  {planStage !== null ? 'Generating…' : 'Generate with AI'}
                 </Button>
               )
             }
@@ -654,38 +711,77 @@ export default function TripDetailPage() {
       {/* ── AI Itinerary Dialog ──────────────────────────────── */}
       <Dialog open={planOpen} onOpenChange={setPlanOpen}>
         <DialogContent className="max-w-3xl flex flex-col gap-0 p-0" style={{ maxHeight: '85vh' }}>
+
+          {/* Header */}
           <DialogHeader className="shrink-0 px-6 pt-6 pb-4 border-b">
             <DialogTitle className="flex items-center gap-2">
               <Sparkles className="h-5 w-5 text-primary" /> AI Trip Itinerary
             </DialogTitle>
           </DialogHeader>
-          <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-5">
-            {planning && !itinerary && (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="text-sm text-muted-foreground">Generating your itinerary…</p>
-              </div>
-            )}
-            {planning && itinerary && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="flex gap-1">
-                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-1.5 h-1.5 bg-primary rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+
+          {/* 3-step progress indicator — visible only while generating */}
+          {planStage !== null && (
+            <div className="shrink-0 flex items-center gap-2 px-6 py-3 bg-muted/40 border-b text-xs">
+              {/* Step 1 — Creating Itinerary */}
+              <div className="flex items-center gap-1.5">
+                {planStage === 'streaming'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  : <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                }
+                <span className={cn('font-medium', planStage === 'streaming' ? 'text-foreground' : 'text-muted-foreground')}>
+                  Creating Itinerary
                 </span>
-                Writing itinerary…
+              </div>
+              <div className="flex-1 h-px bg-border min-w-[16px]" />
+              {/* Step 2 — Generating Checkpoints */}
+              <div className="flex items-center gap-1.5">
+                {planStage === 'checkpoints'
+                  ? <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                  : <Circle className="h-3.5 w-3.5 text-muted-foreground/40" />
+                }
+                <span className={cn('font-medium', planStage === 'checkpoints' ? 'text-foreground' : 'text-muted-foreground')}>
+                  Generating Checkpoints
+                </span>
+              </div>
+              <div className="flex-1 h-px bg-border min-w-[16px]" />
+              {/* Step 3 — Save */}
+              <div className="flex items-center gap-1.5">
+                <Circle className="h-3.5 w-3.5 text-muted-foreground/30" />
+                <span className="text-muted-foreground/60">Save Checkpoints</span>
+              </div>
+            </div>
+          )}
+
+          {/* Scrollable body */}
+          <div className="flex-1 overflow-y-auto min-h-0 px-6 py-4 space-y-5">
+
+            {/* Initial spinner — before first token arrives */}
+            {planStage === 'streaming' && !itinerary && (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <Loader2 className="h-7 w-7 animate-spin text-primary" />
+                <p className="text-sm text-muted-foreground">Analysing your trip details…</p>
               </div>
             )}
+
+            {/* Itinerary content */}
             {itinerary && (
               <Card>
-                <CardContent className="p-5 prose prose-sm dark:prose-invert max-w-none">
-                  <ReactMarkdown>{itinerary}</ReactMarkdown>
+                <CardContent className="p-5">
+                  <div ref={itineraryRef}>
+                    <ReactMarkdown components={mdComponents}>{itinerary}</ReactMarkdown>
+                  </div>
+                  {/* Streaming cursor */}
+                  {planStage === 'streaming' && (
+                    <span className="inline-block w-2 h-4 bg-primary/70 animate-pulse rounded-sm ml-0.5 align-middle" />
+                  )}
                 </CardContent>
               </Card>
             )}
+
+            {/* Suggested Checkpoints */}
             {suggestions.length > 0 && (
               <div>
-                <h3 className="text-base font-semibold mb-3">Suggested Checkpoints</h3>
+                <h3 className="text-base font-semibold mb-1">Suggested Checkpoints</h3>
                 <p className="text-sm text-muted-foreground mb-3">
                   Select the places you'd like to add to your trip checklist.
                 </p>
@@ -703,7 +799,9 @@ export default function TripDetailPage() {
                         <Checkbox checked={selectedSuggestions.has(i)} />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium">{s.title}</p>
-                          <p className="text-xs text-muted-foreground">{s.description}</p>
+                          {s.description && (
+                            <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{s.description}</p>
+                          )}
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <Badge variant="outline" className="text-[10px]">{s.category}</Badge>
@@ -720,18 +818,42 @@ export default function TripDetailPage() {
               </div>
             )}
           </div>
-          {suggestions.length > 0 && (
-            <div className="shrink-0 border-t px-6 py-4 flex justify-end gap-2 bg-background">
-              <Button variant="ghost" onClick={() => setPlanOpen(false)}>Cancel</Button>
-              <Button
-                onClick={handleSaveCheckpoints}
-                disabled={selectedSuggestions.size === 0 || createBulk.isPending}
-              >
-                {createBulk.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Save {selectedSuggestions.size} Checkpoint{selectedSuggestions.size !== 1 ? 's' : ''}
+
+          {/* Footer — always visible */}
+          <div className="shrink-0 border-t px-6 py-4 bg-background">
+            <div className="flex items-center gap-2">
+              {/* Close — always on the left */}
+              <Button variant="ghost" onClick={() => setPlanOpen(false)}>
+                Close
               </Button>
+
+              {/* Download buttons — appear once generation is fully done */}
+              {itinerary && planStage === null && (
+                <div className="flex items-center gap-2 ml-auto">
+                  <Button variant="outline" size="sm" onClick={downloadItineraryAsPdf}>
+                    <Printer className="h-3.5 w-3.5" /> PDF
+                  </Button>
+                </div>
+              )}
             </div>
-          )}
+
+            {/* Save Checkpoints row — prominently separated when suggestions are ready */}
+            {suggestions.length > 0 && planStage === null && (
+              <div className="flex items-center justify-between gap-3 mt-3 pt-3 border-t border-border">
+                <p className="text-xs text-muted-foreground">
+                  {selectedSuggestions.size} of {suggestions.length} checkpoint{suggestions.length !== 1 ? 's' : ''} selected
+                </p>
+                <Button
+                  onClick={handleSaveCheckpoints}
+                  disabled={selectedSuggestions.size === 0 || createBulk.isPending}
+                >
+                  {createBulk.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save {selectedSuggestions.size} Checkpoint{selectedSuggestions.size !== 1 ? 's' : ''}
+                </Button>
+              </div>
+            )}
+          </div>
+
         </DialogContent>
       </Dialog>
 
