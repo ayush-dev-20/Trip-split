@@ -1,7 +1,6 @@
-import { Menu, Bell, Sun, Moon, Monitor, LogOut, User as UserIcon, BarChart3 } from 'lucide-react';
+import { Menu, Sun, Moon, Monitor, LogOut, User as UserIcon, BarChart3 } from 'lucide-react';
 import { useAuthStore } from '@/stores/authStore';
 import { useThemeStore } from '@/stores/themeStore';
-import { useNotificationStore } from '@/stores/notificationStore';
 import { useLogout } from '@/hooks/useAuth';
 import { NavLink } from 'react-router';
 import { Button } from '@/components/ui/button';
@@ -14,7 +13,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Badge } from '@/components/ui/badge';
 import logoDark64 from '@/assets/logo/tripsplit-dark-64.svg';
 import logoLight96 from '@/assets/logo/tripsplit-light-96.svg';
 
@@ -25,7 +23,6 @@ interface HeaderProps {
 export default function Header({ onMenuClick }: HeaderProps) {
   const user = useAuthStore((s) => s.user);
   const { theme, setTheme, resolvedTheme } = useThemeStore();
-  const { unreadCount, togglePanel } = useNotificationStore();
   const { logout } = useLogout();
 
   const themeIcon = theme === 'dark' ? Moon : theme === 'light' ? Sun : Monitor;
@@ -102,25 +99,6 @@ export default function Header({ onMenuClick }: HeaderProps) {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-
-          {/* Notifications bell */}
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={togglePanel}
-            className="relative h-9 w-9"
-            aria-label="Notifications"
-          >
-            <Bell className="h-[18px] w-[18px] lg:h-5 lg:w-5" />
-            {unreadCount > 0 && (
-              <Badge
-                variant="destructive"
-                className="absolute -top-0.5 -right-0.5 h-4 min-w-4 px-1 text-[10px] flex items-center justify-center"
-              >
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </Badge>
-            )}
-          </Button>
 
           {/* Profile dropdown */}
           <DropdownMenu>
