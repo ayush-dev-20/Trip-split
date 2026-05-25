@@ -32,6 +32,7 @@ const COLORS = [
 
 const CATEGORY_COLORS: Record<string, string> = {
   FOOD: '#ef4444',
+  GROCERIES: '#16a34a',
   TRANSPORT: '#3b82f6',
   ACCOMMODATION: '#8b5cf6',
   ACTIVITIES: '#f59e0b',

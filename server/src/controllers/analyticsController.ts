@@ -644,9 +644,10 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
   const prevStart = getPeriodWindow(period, shiftPeriodBack(period, start)).start;
   const prevEnd   = new Date(start.getTime() - 1);
 
-  const [currentExpenses, previousExpenses] = await Promise.all([
+  const [currentExpenses, previousExpenses, user] = await Promise.all([
     prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: start, lte: end } } }),
     prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { preferredCurrency: true } }),
   ]);
 
   const totalSpent = currentExpenses.reduce((s, e) => s + e.baseAmount, 0);
@@ -679,7 +680,7 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
     data: {
       period,
       totalSpent: Math.round(totalSpent * 100) / 100,
-      currency: 'USD',
+      currency: user.preferredCurrency || 'USD',
       transactionCount: currentExpenses.length,
       avgPerDay: Math.round((totalSpent / daysDiff) * 100) / 100,
       topCategory,

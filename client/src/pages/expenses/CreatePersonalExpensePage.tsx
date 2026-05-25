@@ -10,6 +10,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { CATEGORY_STYLES } from '@/lib/categoryStyle';
 import { useCreatePersonalExpense } from '@/hooks/usePersonalExpenses';
+import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
 import { cn } from '@/lib/utils';
 import type { ExpenseCategory } from '@/types';
@@ -39,11 +40,12 @@ function todayDateValue() {
 export default function CreatePersonalExpensePage() {
   const navigate = useNavigate();
   const createMutation = useCreatePersonalExpense();
+  const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
 
   const [form, setForm] = useState<Form>({
     title: '',
     amount: '',
-    currency: 'USD',
+    currency: preferredCurrency,
     category: 'MISCELLANEOUS',
     date: todayDateValue(),
     description: '',
