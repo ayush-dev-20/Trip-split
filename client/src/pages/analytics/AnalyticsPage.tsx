@@ -59,6 +59,20 @@ function fmt(amount: number, currency: string) {
   return `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+// Compact format for chart axis ticks — uses the real currency symbol (e.g. ₹, $, €)
+function fmtTick(amount: number, currency: string) {
+  try {
+    return new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency,
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount}`;
+  }
+}
+
 // ─── Stat Card ────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, sub, className }: {
   icon: React.ElementType;
@@ -276,7 +290,7 @@ export default function AnalyticsPage() {
                   <BarChart data={personalData.timeSeriesData} barSize={personalPeriod === 'month' ? 10 : 28}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, personalData.currency)} />
                     <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
                     <Bar dataKey="amount" name="Spent" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -290,7 +304,7 @@ export default function AnalyticsPage() {
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={personalData.categoryBreakdown} layout="vertical" barSize={14}>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                        <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                        <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, personalData.currency)} />
                         <YAxis type="category" dataKey="category" tick={{ fontSize: 10 }} width={90}
                           tickFormatter={(v) => v.charAt(0) + v.slice(1).toLowerCase()} />
                         <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
