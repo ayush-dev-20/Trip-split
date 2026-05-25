@@ -9,6 +9,7 @@ export type PollStatus = 'OPEN' | 'CLOSED';
 
 export type ExpenseCategory =
   | 'FOOD'
+  | 'GROCERIES'
   | 'TRANSPORT'
   | 'ACCOMMODATION'
   | 'ACTIVITIES'
@@ -456,4 +457,60 @@ export interface TripNote {
   user?: User;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Personal Expense Types ──────────────────────────────────────────────────
+
+export interface PersonalExpense {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  exchangeRate: number;
+  baseAmount: number;
+  category: ExpenseCategory;
+  description?: string;
+  date: string;
+  isRecurring: boolean;
+  recurringPattern?: string;
+  receiptUrl?: string;
+  paidById: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PersonalExpenseCalendarDay {
+  date: string;
+  total: number;
+  count: number;
+  expenses: PersonalExpense[];
+}
+
+export type PersonalAnalyticsPeriod = 'week' | 'month' | 'quarter' | 'year';
+
+export interface PersonalAnalytics {
+  period: PersonalAnalyticsPeriod;
+  totalSpent: number;
+  currency: string;
+  transactionCount: number;
+  avgPerDay: number;
+  topCategory: string;
+  categoryBreakdown: { category: string; total: number; count: number; percentage: number }[];
+  timeSeriesData: { label: string; amount: number }[];
+  comparisonToPrev: {
+    previousTotal: number;
+    changePercent: number;
+    direction: 'up' | 'down' | 'same';
+  };
+}
+
+export interface CreatePersonalExpensePayload {
+  title: string;
+  amount: number;
+  currency?: string;
+  category: ExpenseCategory;
+  description?: string;
+  date: string;
+  isRecurring?: boolean;
+  recurringPattern?: string;
 }

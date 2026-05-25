@@ -1,5 +1,6 @@
 import {
   Utensils,
+  ShoppingCart,
   Car,
   Building2,
   Map,
@@ -21,8 +22,9 @@ interface CategoryStyle {
 }
 
 export const CATEGORY_STYLES: Record<ExpenseCategory, CategoryStyle> = {
-  FOOD:          { icon: Utensils,    label: 'Food',          bg: 'bg-orange-500/10 dark:bg-orange-500/15',  fg: 'text-orange-600 dark:text-orange-400' },
-  TRANSPORT:     { icon: Car,         label: 'Transport',     bg: 'bg-blue-500/10 dark:bg-blue-500/15',      fg: 'text-blue-600 dark:text-blue-400' },
+  FOOD:          { icon: Utensils,      label: 'Food',          bg: 'bg-orange-500/10 dark:bg-orange-500/15',  fg: 'text-orange-600 dark:text-orange-400' },
+  GROCERIES:     { icon: ShoppingCart,  label: 'Groceries',     bg: 'bg-green-500/10 dark:bg-green-500/15',    fg: 'text-green-600 dark:text-green-400' },
+  TRANSPORT:     { icon: Car,           label: 'Transport',     bg: 'bg-blue-500/10 dark:bg-blue-500/15',      fg: 'text-blue-600 dark:text-blue-400' },
   ACCOMMODATION: { icon: Building2,   label: 'Accommodation', bg: 'bg-purple-500/10 dark:bg-purple-500/15',  fg: 'text-purple-600 dark:text-purple-400' },
   ACTIVITIES:    { icon: Map,         label: 'Activities',    bg: 'bg-emerald-500/10 dark:bg-emerald-500/15',fg: 'text-emerald-600 dark:text-emerald-400' },
   SHOPPING:      { icon: ShoppingBag, label: 'Shopping',      bg: 'bg-pink-500/10 dark:bg-pink-500/15',      fg: 'text-pink-600 dark:text-pink-400' },

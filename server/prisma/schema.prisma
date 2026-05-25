@@ -36,6 +36,7 @@ enum SplitType {
 
 enum ExpenseCategory {
   FOOD
+  GROCERIES
   TRANSPORT
   ACCOMMODATION
   ACTIVITIES
@@ -287,8 +288,8 @@ model Expense {
   isRecurring     Boolean         @default(false)
   recurringPattern String?        // cron-like pattern
   receiptUrl      String?
-  tripId          String
-  trip            Trip            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripId          String?
+  trip            Trip?           @relation(fields: [tripId], references: [id], onDelete: Cascade)
   paidById        String
   paidBy          User            @relation("PaidByUser", fields: [paidById], references: [id])
   createdAt       DateTime        @default(now())
@@ -303,6 +304,7 @@ model Expense {
   @@index([paidById])
   @@index([category])
   @@index([date])
+  @@index([paidById, tripId])
 }
 
 model ExpenseSplit {

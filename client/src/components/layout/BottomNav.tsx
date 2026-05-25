@@ -1,13 +1,13 @@
 import { NavLink } from 'react-router';
-import { LayoutDashboard, Plane, Users, Sparkles, Settings } from 'lucide-react';
+import { LayoutDashboard, Plane, Wallet, BarChart3, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TABS = [
   { to: '/dashboard', icon: LayoutDashboard, label: 'Home' },
-  { to: '/trips', icon: Plane, label: 'Trips' },
-  { to: '/groups', icon: Users, label: 'Groups' },
-  { to: '/ai', icon: Sparkles, label: 'AI' },
-  { to: '/settings', icon: Settings, label: 'Settings' },
+  { to: '/trips',     icon: Plane,           label: 'Trips' },
+  { to: '/expenses',  icon: Wallet,          label: 'Expenses' },
+  { to: '/analytics', icon: BarChart3,       label: 'Analytics' },
+  { to: '/ai',        icon: Sparkles,        label: 'AI' },
 ];
 
 export default function BottomNav() {

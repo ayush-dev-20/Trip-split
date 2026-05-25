@@ -7,6 +7,7 @@ import {
   Sparkles,
   Settings,
   Plus,
+  Wallet,
 } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -18,8 +19,9 @@ import logoLight96 from '@/assets/logo/tripsplit-light-96.svg';
 
 const PRIMARY_NAV = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { to: '/trips', label: 'Trips', icon: Map },
-  { to: '/groups', label: 'Groups', icon: Users },
+  { to: '/trips',     label: 'Trips',     icon: Map },
+  { to: '/groups',    label: 'Groups',    icon: Users },
+  { to: '/expenses',  label: 'Daily Expenses',  icon: Wallet },
   { to: '/analytics', label: 'Analytics', icon: BarChart3 },
 ];
 

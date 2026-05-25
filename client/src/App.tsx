@@ -25,6 +25,8 @@ import GroupDetailPage from '@/pages/groups/GroupDetailPage';
 import ExpensesPage from '@/pages/expenses/ExpensesPage';
 import CreateExpensePage from '@/pages/expenses/CreateExpensePage';
 import ExpenseDetailPage from '@/pages/expenses/ExpenseDetailPage';
+import PersonalExpensesPage from '@/pages/expenses/PersonalExpensesPage';
+import CreatePersonalExpensePage from '@/pages/expenses/CreatePersonalExpensePage';
 import SettlementsPage from '@/pages/settlements/SettlementsPage';
 import AnalyticsPage from '@/pages/analytics/AnalyticsPage';
 import AIAssistantPage from '@/pages/ai/AIAssistantPage';
@@ -124,6 +126,10 @@ export default function App() {
           {/* Groups */}
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/groups/:groupId" element={<GroupDetailPage />} />
+
+          {/* Personal Expenses */}
+          <Route path="/expenses" element={<PersonalExpensesPage />} />
+          <Route path="/expenses/new" element={<CreatePersonalExpensePage />} />
 
           {/* Expenses (trip-scoped) */}
           <Route path="/trips/:tripId/expenses" element={<ExpensesPage />} />

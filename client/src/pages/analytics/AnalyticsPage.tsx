@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsService } from '@/services/analyticsService';
+import { usePersonalAnalytics } from '@/hooks/usePersonalExpenses';
+import type { PersonalAnalyticsPeriod } from '@/types';
 import { useTrips } from '@/hooks/useTrips';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import {
@@ -123,6 +125,8 @@ function CustomTooltip({ active, payload, label, currency }: any) {
 // ─── Main Component ───────────────────────────────────────
 export default function AnalyticsPage() {
   const { data: tripsData, isLoading: tripsLoading } = useTrips();
+  const [activeTab, setActiveTab]       = useState<'trips' | 'personal'>('trips');
+  const [personalPeriod, setPersonalPeriod] = useState<PersonalAnalyticsPeriod>('month');
   const [selectedTrip, setSelectedTrip] = useState('');
   const trips = tripsData?.trips ?? [];
 
@@ -144,6 +148,8 @@ export default function AnalyticsPage() {
     queryKey: ['yearInReview'],
     queryFn: () => analyticsService.yearInReview(),
   });
+
+  const { data: personalData, isLoading: personalLoading } = usePersonalAnalytics(personalPeriod);
 
   if (tripsLoading) return <PageLoader />;
 
@@ -180,6 +186,158 @@ export default function AnalyticsPage() {
         <p className="text-sm text-muted-foreground mt-1">Deep dive into your spending patterns</p>
       </div>
 
+      {/* ── Tab switcher ── */}
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+        {(['trips', 'personal'] as const).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={cn(
+              'px-4 py-1.5 rounded-md text-sm font-medium transition-colors capitalize',
+              activeTab === tab
+                ? 'bg-background shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            {tab === 'trips' ? 'Trip Analytics' : 'Personal'}
+          </button>
+        ))}
+      </div>
+
+      {/* ═══════════ PERSONAL TAB ═══════════ */}
+      {activeTab === 'personal' && (
+        <div className="space-y-6">
+          {/* Period selector */}
+          <div className="flex gap-2 flex-wrap">
+            {(['week', 'month', 'quarter', 'year'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPersonalPeriod(p)}
+                className={cn(
+                  'px-4 py-1.5 rounded-full text-sm font-medium border transition-colors capitalize',
+                  personalPeriod === p
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                )}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+
+          {personalLoading ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[...Array(4)].map((_, i) => (
+                <Card key={i} className="animate-pulse h-24" />
+              ))}
+            </div>
+          ) : personalData ? (
+            <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+
+              {/* Summary stat cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <StatCard
+                  icon={DollarSign}
+                  label="Total Spent"
+                  value={fmt(personalData.totalSpent, personalData.currency)}
+                  sub={`${personalData.transactionCount} transaction${personalData.transactionCount !== 1 ? 's' : ''}`}
+                />
+                <StatCard
+                  icon={CalendarDays}
+                  label="Daily Average"
+                  value={fmt(personalData.avgPerDay, personalData.currency)}
+                />
+                <StatCard
+                  icon={PieChartIcon}
+                  label="Top Category"
+                  value={personalData.topCategory.charAt(0) + personalData.topCategory.slice(1).toLowerCase()}
+                />
+                <Card className="p-4">
+                  <p className="text-xs text-muted-foreground mb-1">vs Previous Period</p>
+                  <p className={cn('text-xl font-bold tabular-nums flex items-center gap-1',
+                    personalData.comparisonToPrev.direction === 'up' ? 'text-red-500'
+                    : personalData.comparisonToPrev.direction === 'down' ? 'text-green-500'
+                    : 'text-muted-foreground'
+                  )}>
+                    {personalData.comparisonToPrev.direction === 'up' && <ArrowUpRight className="h-4 w-4" />}
+                    {personalData.comparisonToPrev.direction === 'down' && <ArrowDownRight className="h-4 w-4" />}
+                    {Math.abs(personalData.comparisonToPrev.changePercent)}%
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    prev: {fmt(personalData.comparisonToPrev.previousTotal, personalData.currency)}
+                  </p>
+                </Card>
+              </div>
+
+              {/* Time series */}
+              <ChartCard title={`Spending — ${personalPeriod.charAt(0).toUpperCase() + personalPeriod.slice(1)}`}>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={personalData.timeSeriesData} barSize={personalPeriod === 'month' ? 10 : 28}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                    <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
+                    <Bar dataKey="amount" name="Spent" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              {/* Category breakdown */}
+              {personalData.categoryBreakdown.length > 0 && (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <ChartCard title="By Category">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <BarChart data={personalData.categoryBreakdown} layout="vertical" barSize={14}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => `$${v}`} />
+                        <YAxis type="category" dataKey="category" tick={{ fontSize: 10 }} width={90}
+                          tickFormatter={(v) => v.charAt(0) + v.slice(1).toLowerCase()} />
+                        <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
+                        <Bar dataKey="total" name="Amount" radius={[0, 4, 4, 0]}>
+                          {personalData.categoryBreakdown.map((entry, idx) => (
+                            <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </ChartCard>
+
+                  <ChartCard title="Category Split">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <RechartsPie>
+                        <Pie
+                          data={personalData.categoryBreakdown}
+                          dataKey="total"
+                          nameKey="category"
+                          cx="50%"
+                          cy="50%"
+                          outerRadius={80}
+                          label={({ category, percentage }) =>
+                            `${category.charAt(0) + category.slice(1).toLowerCase()} ${percentage}%`
+                          }
+                          labelLine={false}
+                        >
+                          {personalData.categoryBreakdown.map((entry, idx) => (
+                            <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => fmt(v, personalData.currency)} />
+                      </RechartsPie>
+                    </ResponsiveContainer>
+                  </ChartCard>
+                </div>
+              )}
+            </motion.div>
+          ) : (
+            <div className="py-16 text-center text-muted-foreground">
+              <Wallet className="h-10 w-10 mx-auto mb-3 opacity-40" />
+              <p>No personal expenses found for this period.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'trips' && <>
       {/* ═══════════ SECTION A — Year in Review ═══════════ */}
       {yearReview && (
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
@@ -596,6 +754,7 @@ export default function AnalyticsPage() {
           </div>
         )}
       </div>
+      </> }
     </div>
   );
 }

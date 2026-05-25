@@ -11,5 +11,6 @@ router.get('/trip/:tripId', analytics.getTripAnalytics);
 router.get('/compare', requireFeature('allCharts'), analytics.compareTrips);
 router.get('/year-in-review', requireFeature('yearInReview'), analytics.yearInReview);
 router.get('/category-trends', requireFeature('advancedAnalytics'), analytics.categoryTrends);
+router.get('/personal', analytics.getPersonalAnalytics);
 
 export default router;

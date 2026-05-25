@@ -102,7 +102,7 @@ export const createExpenseSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
   currency: z.string().length(3).default('USD'),
   category: z.enum([
-    'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
+    'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
     'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION',
     'FEES', 'MISCELLANEOUS',
   ]).default('MISCELLANEOUS'),
@@ -121,7 +121,7 @@ export const updateExpenseSchema = z.object({
   amount: z.number().positive().optional(),
   currency: z.string().length(3).optional(),
   category: z.enum([
-    'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
+    'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
     'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION',
     'FEES', 'MISCELLANEOUS',
   ]).optional(),
@@ -261,4 +261,44 @@ export const createNoteSchema = z.object({
 export const updateNoteSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   content: z.string().optional(),
+});
+
+// ──────────────────────────────────
+// PERSONAL EXPENSE VALIDATORS
+// ──────────────────────────────────
+
+const expenseCategoryEnum = z.enum([
+  'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
+  'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION',
+  'FEES', 'MISCELLANEOUS',
+]);
+
+export const createPersonalExpenseSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200),
+  description: z.string().max(1000).optional(),
+  amount: z.number().positive('Amount must be positive'),
+  currency: z.string().length(3).default('USD'),
+  category: expenseCategoryEnum.default('MISCELLANEOUS'),
+  date: z.string().datetime(),
+  isRecurring: z.boolean().default(false),
+  recurringPattern: z.string().optional(),
+});
+
+export const updatePersonalExpenseSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional().nullable(),
+  amount: z.number().positive().optional(),
+  currency: z.string().length(3).optional(),
+  category: expenseCategoryEnum.optional(),
+  date: z.string().datetime().optional(),
+  isRecurring: z.boolean().optional(),
+  recurringPattern: z.string().optional().nullable(),
+});
+
+export const personalExpenseQuerySchema = z.object({
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  category: expenseCategoryEnum.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(50),
 });

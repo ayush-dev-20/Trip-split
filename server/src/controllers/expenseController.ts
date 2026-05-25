@@ -293,6 +293,7 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
   });
 
   if (!expense) throw AppError.notFound('Expense not found');
+  if (!expense.trip) throw AppError.badRequest('Expense is not associated with a trip');
 
   const isMember = expense.trip.members.some((m: any) => m.userId === userId);
   if (!isMember) throw AppError.forbidden('You are not a member of this trip');
@@ -310,7 +311,7 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
     const { convertedAmount, exchangeRate } = await convertCurrency(
       updateData.amount || expense.amount,
       updateData.currency || expense.currency,
-      expense.trip.budgetCurrency
+      expense.trip!.budgetCurrency
     );
     updateData.baseAmount = convertedAmount;
     updateData.exchangeRate = exchangeRate;
@@ -332,7 +333,7 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
 
     const memberIds = newSplits
       ? newSplits.map((s: any) => s.userId)
-      : expense.trip.members.map((m: any) => m.userId);
+      : expense.trip!.members.map((m: any) => m.userId);
 
     const calculatedSplits = calculateSplits(
       updated.baseAmount,
@@ -378,6 +379,7 @@ export const deleteExpense = asyncHandler(async (req: Request, res: Response) =>
   });
 
   if (!expense) throw AppError.notFound('Expense not found');
+  if (!expense.trip) throw AppError.badRequest('Expense is not associated with a trip');
 
   const membership = expense.trip.members.find((m: any) => m.userId === userId);
   if (!membership) throw AppError.forbidden('You are not a member of this trip');
@@ -402,7 +404,7 @@ export const deleteExpense = asyncHandler(async (req: Request, res: Response) =>
     entityType: 'expense',
     entityId: expense.id,
     userId,
-    tripId: expense.tripId,
+    tripId: expense.tripId ?? undefined,
   });
 
   res.json({ success: true, message: 'Expense deleted' });

@@ -324,10 +324,10 @@ export const getUserExpenses = asyncHandler(async (req: Request, res: Response) 
     fullAmount: Math.round(s.expense.baseAmount * 100) / 100, // total expense amount
     category: s.expense.category,
     date: s.expense.date.toISOString().split('T')[0],
-    currency: s.expense.trip.budgetCurrency,
+    currency: s.expense.trip?.budgetCurrency ?? 'USD',
     splitType: s.expense.splitType,
     paidBy: s.expense.paidBy,
-    trip: { id: s.expense.trip.id, name: s.expense.trip.name },
+    trip: s.expense.trip ? { id: s.expense.trip.id, name: s.expense.trip.name } : null,
   }));
 
   const totalSpent = Math.round(
@@ -501,4 +501,195 @@ export const categoryTrends = asyncHandler(async (req: Request, res: Response) =
   }));
 
   res.json({ success: true, data: trends });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// PERSONAL ANALYTICS
+// ──────────────────────────────────────────────────────────────────────────────
+
+type Period = 'week' | 'month' | 'quarter' | 'year';
+
+function getPeriodWindow(period: Period, ref: Date): { start: Date; end: Date } {
+  const d = new Date(ref);
+  switch (period) {
+    case 'week': {
+      const day = d.getDay(); // 0=Sun
+      const monday = new Date(d);
+      monday.setDate(d.getDate() - ((day + 6) % 7));
+      monday.setHours(0, 0, 0, 0);
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      sunday.setHours(23, 59, 59, 999);
+      return { start: monday, end: sunday };
+    }
+    case 'month': {
+      return {
+        start: new Date(d.getFullYear(), d.getMonth(), 1),
+        end:   new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999),
+      };
+    }
+    case 'quarter': {
+      const q = Math.floor(d.getMonth() / 3);
+      return {
+        start: new Date(d.getFullYear(), q * 3, 1),
+        end:   new Date(d.getFullYear(), q * 3 + 3, 0, 23, 59, 59, 999),
+      };
+    }
+    case 'year': {
+      return {
+        start: new Date(d.getFullYear(), 0, 1),
+        end:   new Date(d.getFullYear(), 11, 31, 23, 59, 59, 999),
+      };
+    }
+  }
+}
+
+function shiftPeriodBack(period: Period, start: Date): Date {
+  const d = new Date(start);
+  switch (period) {
+    case 'week':    d.setDate(d.getDate() - 7);    break;
+    case 'month':   d.setMonth(d.getMonth() - 1);  break;
+    case 'quarter': d.setMonth(d.getMonth() - 3);  break;
+    case 'year':    d.setFullYear(d.getFullYear() - 1); break;
+  }
+  return d;
+}
+
+function buildTimeSeries(period: Period, start: Date, end: Date, expenses: { date: Date; baseAmount: number }[]) {
+  const labels: string[] = [];
+  const totals: Record<string, number> = {};
+
+  if (period === 'week') {
+    const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      const key = d.toISOString().split('T')[0];
+      labels.push(DAY_NAMES[i]);
+      totals[key] = 0;
+    }
+    for (const e of expenses) {
+      const key = e.date.toISOString().split('T')[0];
+      if (totals[key] !== undefined) totals[key] += e.baseAmount;
+    }
+    return labels.map((label, i) => {
+      const d = new Date(start);
+      d.setDate(start.getDate() + i);
+      return { label, amount: Math.round((totals[d.toISOString().split('T')[0]] || 0) * 100) / 100 };
+    });
+  }
+
+  if (period === 'month') {
+    const daysInMonth = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const d = new Date(start.getFullYear(), start.getMonth(), day);
+      const key = d.toISOString().split('T')[0];
+      totals[key] = 0;
+    }
+    for (const e of expenses) {
+      const key = e.date.toISOString().split('T')[0];
+      if (totals[key] !== undefined) totals[key] += e.baseAmount;
+    }
+    return Object.entries(totals).map(([date, amount]) => ({
+      label: String(new Date(date).getDate()),
+      amount: Math.round(amount * 100) / 100,
+    }));
+  }
+
+  if (period === 'quarter') {
+    const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    for (let m = 0; m < 3; m++) {
+      const month = new Date(start.getFullYear(), start.getMonth() + m, 1);
+      const key = `${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, '0')}`;
+      totals[key] = 0;
+    }
+    for (const e of expenses) {
+      const key = `${e.date.getFullYear()}-${String(e.date.getMonth() + 1).padStart(2, '0')}`;
+      if (totals[key] !== undefined) totals[key] += e.baseAmount;
+    }
+    return Object.entries(totals).map(([key, amount]) => {
+      const [, m] = key.split('-');
+      return { label: MONTH_NAMES[parseInt(m, 10) - 1], amount: Math.round(amount * 100) / 100 };
+    });
+  }
+
+  // year
+  const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  for (let m = 0; m < 12; m++) {
+    totals[String(m)] = 0;
+  }
+  for (const e of expenses) {
+    const key = String(e.date.getMonth());
+    if (totals[key] !== undefined) totals[key] += e.baseAmount;
+  }
+  return MONTH_NAMES.map((label, i) => ({
+    label,
+    amount: Math.round((totals[String(i)] || 0) * 100) / 100,
+  }));
+}
+
+/**
+ * GET /api/analytics/personal?period=week|month|quarter|year&referenceDate=ISO
+ */
+export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const period = (req.query.period as Period) || 'month';
+  const ref = req.query.referenceDate ? new Date(req.query.referenceDate as string) : new Date();
+
+  if (!['week', 'month', 'quarter', 'year'].includes(period)) {
+    throw AppError.badRequest('period must be week, month, quarter, or year');
+  }
+
+  const { start, end } = getPeriodWindow(period, ref);
+  const prevStart = getPeriodWindow(period, shiftPeriodBack(period, start)).start;
+  const prevEnd   = new Date(start.getTime() - 1);
+
+  const [currentExpenses, previousExpenses] = await Promise.all([
+    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: start, lte: end } } }),
+    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
+  ]);
+
+  const totalSpent = currentExpenses.reduce((s, e) => s + e.baseAmount, 0);
+  const previousTotal = previousExpenses.reduce((s, e) => s + e.baseAmount, 0);
+  const daysDiff = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+
+  // Category breakdown
+  const catMap: Record<string, { total: number; count: number }> = {};
+  for (const e of currentExpenses) {
+    if (!catMap[e.category]) catMap[e.category] = { total: 0, count: 0 };
+    catMap[e.category].total += e.baseAmount;
+    catMap[e.category].count += 1;
+  }
+  const categoryBreakdown = Object.entries(catMap)
+    .map(([category, { total, count }]) => ({
+      category,
+      total: Math.round(total * 100) / 100,
+      count,
+      percentage: totalSpent > 0 ? Math.round((total / totalSpent) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const topCategory = categoryBreakdown[0]?.category || 'MISCELLANEOUS';
+  const changePercent = previousTotal > 0
+    ? Math.round(((totalSpent - previousTotal) / previousTotal) * 1000) / 10
+    : 0;
+
+  res.json({
+    success: true,
+    data: {
+      period,
+      totalSpent: Math.round(totalSpent * 100) / 100,
+      currency: 'USD',
+      transactionCount: currentExpenses.length,
+      avgPerDay: Math.round((totalSpent / daysDiff) * 100) / 100,
+      topCategory,
+      categoryBreakdown,
+      timeSeriesData: buildTimeSeries(period, start, end, currentExpenses),
+      comparisonToPrev: {
+        previousTotal: Math.round(previousTotal * 100) / 100,
+        changePercent,
+        direction: totalSpent > previousTotal ? 'up' : totalSpent < previousTotal ? 'down' : 'same',
+      },
+    },
+  });
 });
