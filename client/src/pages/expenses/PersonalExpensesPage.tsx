@@ -1,25 +1,37 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List } from 'lucide-react';
+import {
+  Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
+  History, Trash2, Loader2, Pencil,
+} from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import EmptyState from '@/components/ui/EmptyState';
-import { usePersonalExpenses, usePersonalExpensesCalendar, useDeletePersonalExpense } from '@/hooks/usePersonalExpenses';
+import {
+  usePersonalExpenses,
+  usePersonalExpense,
+  usePersonalExpensesCalendar,
+  useDeletePersonalExpense,
+} from '@/hooks/usePersonalExpenses';
+import { useAuthStore } from '@/stores/authStore';
+import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
 import { cn } from '@/lib/utils';
 import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay } from '@/types';
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL_CATEGORIES = Object.keys(CATEGORY_STYLES) as ExpenseCategory[];
-
-function formatMoney(amount: number, currency = 'USD') {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount);
-}
 
 function formatDayLabel(dateStr: string) {
   const d = parseISO(dateStr);
@@ -28,57 +40,231 @@ function formatDayLabel(dateStr: string) {
   return format(d, 'EEE, MMM d');
 }
 
-// ── Expense Card ────────────────────────────────────────────────────────────
+// ── Expense Card ─────────────────────────────────────────────────────────────
 
-function ExpenseCard({ expense, onDelete }: { expense: PersonalExpense; onDelete: (id: string) => void }) {
+interface ExpenseCardProps {
+  expense: PersonalExpense;
+  onDelete: (id: string) => void;
+  onClick?: () => void;
+}
+
+function ExpenseCard({ expense, onDelete, onClick }: ExpenseCardProps) {
   const cat = getCategoryStyle(expense.category);
   const Icon = cat.icon;
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      className="flex items-center gap-3 px-4 py-3 hover:bg-accent/40 transition-colors group"
-    >
-      <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', cat.bg)}>
-        <Icon className={cn('h-5 w-5', cat.fg)} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{expense.title}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          {cat.label} · {format(parseISO(expense.date), 'h:mm a')}
-        </p>
-      </div>
-      <div className="text-right shrink-0 flex items-center gap-2">
-        <p className="text-sm font-semibold tabular-nums">
-          {formatMoney(expense.amount, expense.currency)}
-        </p>
-        <button
-          onClick={() => onDelete(expense.id)}
-          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity text-xs px-1"
-          aria-label="Delete"
-        >
-          ✕
-        </button>
-      </div>
-    </motion.div>
+    <>
+      <motion.div
+        layout
+        initial={{ opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -4 }}
+        className={cn(
+          'flex items-center gap-3 px-4 py-3 transition-colors group',
+          onClick ? 'cursor-pointer hover:bg-accent/50 active:bg-accent/70' : 'hover:bg-accent/40',
+        )}
+        onClick={onClick}
+      >
+        <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', cat.bg)}>
+          <Icon className={cn('h-5 w-5', cat.fg)} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{expense.title}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {cat.label} · {format(parseISO(expense.createdAt), 'h:mm a')}
+            {expense.updatedAt !== expense.createdAt && (
+              <span className="italic"> · edited {format(parseISO(expense.updatedAt), 'h:mm a')}</span>
+            )}
+          </p>
+        </div>
+        <div className="text-right shrink-0 flex items-center gap-1">
+          <p className="text-sm font-semibold tabular-nums">
+            {formatMoney(expense.amount, expense.currency)}
+          </p>
+          <Link
+            to={`/expenses/${expense.id}/edit`}
+            onClick={(e) => e.stopPropagation()}
+            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity p-1"
+            aria-label="Edit"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+          </Link>
+          <button
+            onClick={(e) => { e.stopPropagation(); setConfirmOpen(true); }}
+            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity text-xs px-1"
+            aria-label="Delete"
+          >
+            ✕
+          </button>
+        </div>
+      </motion.div>
+
+      <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{expense.title}" will be permanently deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onDelete(expense.id)}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
+  );
+}
+
+// ── Personal Expense Detail Dialog ───────────────────────────────────────────
+
+function PersonalExpenseDetailDialog({
+  expenseId,
+  onClose,
+  onDelete,
+}: {
+  expenseId: string | null;
+  onClose: () => void;
+  onDelete: (id: string) => void;
+}) {
+  const { data: expense, isLoading } = usePersonalExpense(expenseId ?? '');
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const cat = expense ? getCategoryStyle(expense.category) : null;
+  const Icon = cat?.icon;
+
+  return (
+    <Dialog open={!!expenseId} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="sr-only">Expense Details</DialogTitle>
+        </DialogHeader>
+
+        {isLoading && (
+          <div className="space-y-3 py-4">
+            <Skeleton className="h-14 w-14 rounded-2xl mx-auto" />
+            <Skeleton className="h-8 w-36 mx-auto" />
+            <Skeleton className="h-4 w-24 mx-auto" />
+            <Skeleton className="h-24 w-full rounded-xl" />
+          </div>
+        )}
+
+        {expense && cat && Icon && (
+          <div className="space-y-4">
+            {/* Hero */}
+            <div className="flex flex-col items-center pt-2 pb-1 text-center">
+              <div className={cn('h-14 w-14 rounded-2xl flex items-center justify-center mb-3', cat.bg)}>
+                <Icon className={cn('h-7 w-7', cat.fg)} />
+              </div>
+              <p className="text-3xl font-bold tabular-nums tracking-tight">
+                {formatMoney(expense.amount, expense.currency)}
+              </p>
+              <p className="text-base font-medium mt-1 text-foreground">{expense.title}</p>
+              <Badge variant="outline" className={cn('mt-2 border-transparent text-xs', cat.bg, cat.fg)}>
+                {cat.label}
+              </Badge>
+            </div>
+
+            {/* Detail rows */}
+            <div className="rounded-xl border divide-y overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                <span className="text-muted-foreground">Date</span>
+                <span className="font-medium">{format(parseISO(expense.date), 'EEE, MMM d yyyy')}</span>
+              </div>
+              {expense.currency !== expense.currency /* placeholder — shows base if converted */ && (
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Base amount</span>
+                  <span className="font-medium tabular-nums">{formatMoney(expense.baseAmount, 'USD')}</span>
+                </div>
+              )}
+              {expense.isRecurring && (
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Recurring</span>
+                  <Badge variant="secondary" className="text-xs">
+                    {expense.recurringPattern || 'Yes'}
+                  </Badge>
+                </div>
+              )}
+              {expense.description && (
+                <div className="px-4 py-2.5 text-sm">
+                  <p className="text-muted-foreground mb-1">Notes</p>
+                  <p className="leading-relaxed whitespace-pre-wrap">{expense.description}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1" asChild>
+                <Link to={`/expenses/${expense.id}/edit`} onClick={onClose}>
+                  <Pencil className="h-4 w-4 mr-2" />
+                  Edit
+                </Link>
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1"
+                onClick={() => setConfirmOpen(true)}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </Button>
+            </div>
+
+            <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    "{expense.title}" will be permanently deleted. This action cannot be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    onClick={() => { onDelete(expense.id); onClose(); }}
+                  >
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 // ── Today View ───────────────────────────────────────────────────────────────
 
-function TodayView({ category }: { category: string }) {
-  const today = new Date();
-  const startDate = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
-  const endDate   = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999).toISOString();
+function TodayView({
+  category,
+  currency,
+  onExpenseClick,
+}: {
+  category: string;
+  currency: string;
+  onExpenseClick: (id: string) => void;
+}) {
+  // Memoised so the params object is stable across re-renders (prevents extra
+  // TanStack Query key hashing and avoids triggering observers unnecessarily).
+  const { startDate, endDate } = useMemo(() => {
+    const d = new Date();
+    return {
+      startDate: new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString(),
+      endDate:   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).toISOString(),
+    };
+  }, []); // computed once per mount — same calendar day for the lifetime of the component
 
-  const { data, isLoading } = usePersonalExpenses({
-    startDate,
-    endDate,
-    category: category !== 'ALL' ? category : undefined,
-    limit: 100,
-  });
+  const { data, isLoading } = usePersonalExpenses({ startDate, endDate, category: category !== 'ALL' ? category : undefined, limit: 100 });
   const deleteMutation = useDeletePersonalExpense();
 
   const expenses = data?.expenses ?? [];
@@ -94,11 +280,11 @@ function TodayView({ category }: { category: string }) {
 
   return (
     <div className="space-y-4">
-      {/* Today's summary card */}
+      {/* Summary stat cards */}
       <div className="grid grid-cols-2 gap-3">
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Today's Total</p>
-          <p className="text-2xl font-bold mt-1 tabular-nums">{formatMoney(totalToday)}</p>
+          <p className="text-2xl font-bold mt-1 tabular-nums">{formatMoney(totalToday, currency)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Transactions</p>
@@ -121,7 +307,9 @@ function TodayView({ category }: { category: string }) {
         <Card>
           <div className="flex items-center justify-between px-4 pt-3 pb-2">
             <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Today</p>
-            <p className="text-xs text-muted-foreground tabular-nums">{expenses.length} expense{expenses.length !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {expenses.length} expense{expenses.length !== 1 ? 's' : ''}
+            </p>
           </div>
           <ul className="divide-y">
             <AnimatePresence>
@@ -130,6 +318,7 @@ function TodayView({ category }: { category: string }) {
                   key={e.id}
                   expense={e}
                   onDelete={(id) => deleteMutation.mutate(id)}
+                  onClick={() => onExpenseClick(e.id)}
                 />
               ))}
             </AnimatePresence>
@@ -137,30 +326,41 @@ function TodayView({ category }: { category: string }) {
         </Card>
       )}
 
-      {/* Recent — last 7 days excluding today */}
-      <RecentList category={category} />
+      <RecentList category={category} currency={currency} onExpenseClick={onExpenseClick} />
     </div>
   );
 }
 
-function RecentList({ category }: { category: string }) {
-  const today = new Date();
-  const sevenDaysAgo = new Date(today);
-  sevenDaysAgo.setDate(today.getDate() - 7);
-  const endOfYesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 0, 0, 0, -1);
+// ── Recent (last 7 days, Today view footer) ──────────────────────────────────
+
+function RecentList({
+  category,
+  currency,
+  onExpenseClick,
+}: {
+  category: string;
+  currency: string;
+  onExpenseClick: (id: string) => void;
+}) {
+  const { startDate, endDate } = useMemo(() => {
+    const d = new Date();
+    return {
+      startDate: new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7).toISOString(),
+      endDate:   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, -1).toISOString(),
+    };
+  }, []);
 
   const { data } = usePersonalExpenses({
-    startDate: sevenDaysAgo.toISOString(),
-    endDate:   endOfYesterday.toISOString(),
-    category:  category !== 'ALL' ? category : undefined,
+    startDate,
+    endDate,
+    category: category !== 'ALL' ? category : undefined,
     limit: 50,
   });
   const deleteMutation = useDeletePersonalExpense();
 
   const expenses = data?.expenses ?? [];
-  if (expenses.length === 0) return null;
 
-  // Group by date
+  // useMemo must be called before any early return (Rules of Hooks)
   const grouped = useMemo(() => {
     const map: Record<string, PersonalExpense[]> = {};
     for (const e of expenses) {
@@ -171,6 +371,8 @@ function RecentList({ category }: { category: string }) {
     return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
   }, [expenses]);
 
+  if (expenses.length === 0) return null;
+
   return (
     <div className="space-y-4 mt-2">
       <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1">Recent</p>
@@ -179,7 +381,7 @@ function RecentList({ category }: { category: string }) {
           <div className="flex items-center justify-between mb-1 px-1">
             <p className="text-xs text-muted-foreground">{formatDayLabel(day)}</p>
             <p className="text-xs text-muted-foreground tabular-nums">
-              {formatMoney(items.reduce((s, e) => s + e.baseAmount, 0))}
+              {formatMoney(items.reduce((s, e) => s + e.baseAmount, 0), currency)}
             </p>
           </div>
           <Card>
@@ -189,6 +391,7 @@ function RecentList({ category }: { category: string }) {
                   key={e.id}
                   expense={e}
                   onDelete={(id) => deleteMutation.mutate(id)}
+                  onClick={() => onExpenseClick(e.id)}
                 />
               ))}
             </ul>
@@ -199,9 +402,122 @@ function RecentList({ category }: { category: string }) {
   );
 }
 
-// ── Calendar View ────────────────────────────────────────────────────────────
+// ── Past Expenses View ────────────────────────────────────────────────────────
 
-// Map category to a safe dot color (CSS color strings, not dynamic Tailwind classes)
+function PastExpensesView({
+  category,
+  currency,
+  onExpenseClick,
+}: {
+  category: string;
+  currency: string;
+  onExpenseClick: (id: string) => void;
+}) {
+  const LIMIT = 50;
+  const [page, setPage] = useState(1);
+  const [accumulated, setAccumulated] = useState<PersonalExpense[]>([]);
+
+  const endDate = useMemo(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), d.getDate() - 1, 23, 59, 59, 999).toISOString();
+  }, []);
+
+  const { data, isLoading, isFetching } = usePersonalExpenses({
+    endDate,
+    category: category !== 'ALL' ? category : undefined,
+    page,
+    limit: LIMIT,
+  });
+
+  // Accumulate pages; page=1 always resets the list
+  useEffect(() => {
+    if (!data?.expenses) return;
+    setAccumulated((prev) =>
+      page === 1 ? data.expenses : [...prev, ...data.expenses],
+    );
+  }, [data?.expenses, page]);
+
+  const deleteMutation = useDeletePersonalExpense();
+
+  const grouped = useMemo(() => {
+    const map: Record<string, PersonalExpense[]> = {};
+    for (const e of accumulated) {
+      const key = e.date.split('T')[0];
+      if (!map[key]) map[key] = [];
+      map[key].push(e);
+    }
+    return Object.entries(map).sort(([a], [b]) => b.localeCompare(a));
+  }, [accumulated]);
+
+  const hasMore = data ? accumulated.length < data.pagination.total : false;
+
+  if (isLoading && page === 1) {
+    return (
+      <div className="space-y-3">
+        {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-[72px] rounded-xl" />)}
+      </div>
+    );
+  }
+
+  if (grouped.length === 0 && !isFetching) {
+    return (
+      <EmptyState
+        icon={<History className="h-7 w-7" />}
+        title="No past expenses"
+        description="Your expense history will appear here."
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {grouped.map(([day, items]) => (
+        <div key={day}>
+          <div className="flex items-center justify-between mb-1 px-1">
+            <p className="text-xs font-semibold text-muted-foreground">
+              {formatRelativeDay(day)}
+              <span className="font-normal ml-1">· {format(parseISO(day), 'MMM d, yyyy')}</span>
+            </p>
+            <p className="text-xs text-muted-foreground tabular-nums">
+              {formatMoney(items.reduce((s, e) => s + e.baseAmount, 0), currency)}
+            </p>
+          </div>
+          <Card>
+            <ul className="divide-y">
+              {items.map((e) => (
+                <ExpenseCard
+                  key={e.id}
+                  expense={e}
+                  onDelete={(id) =>
+                    deleteMutation.mutate(id, {
+                      onSuccess: () => setAccumulated((prev) => prev.filter((x) => x.id !== id)),
+                    })
+                  }
+                  onClick={() => onExpenseClick(e.id)}
+                />
+              ))}
+            </ul>
+          </Card>
+        </div>
+      ))}
+
+      {hasMore && (
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => setPage((p) => p + 1)}
+          disabled={isFetching}
+        >
+          {isFetching ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+          Load more
+        </Button>
+      )}
+    </div>
+  );
+}
+
+// ── Calendar View ─────────────────────────────────────────────────────────────
+
 const CATEGORY_DOT_COLOR: Record<string, string> = {
   FOOD: '#ea580c',
   GROCERIES: '#16a34a',
@@ -229,14 +545,15 @@ function getCategoryDots(expenses: PersonalExpense[]) {
   return dots;
 }
 
-function formatCompact(amount: number) {
-  if (amount >= 10000) return `$${Math.round(amount / 1000)}k`;
-  if (amount >= 1000)  return `$${(amount / 1000).toFixed(1)}k`;
-  if (amount >= 100)   return `$${Math.round(amount)}`;
-  return `$${amount.toFixed(0)}`;
-}
-
-function CalendarView({ category }: { category: string }) {
+function CalendarView({
+  category,
+  currency,
+  onExpenseClick,
+}: {
+  category: string;
+  currency: string;
+  onExpenseClick: (id: string) => void;
+}) {
   const now = new Date();
   const [year, setYear]   = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -264,16 +581,16 @@ function CalendarView({ category }: { category: string }) {
   );
 
   function prevMonth() {
-    if (month === 1) { setYear(y => y - 1); setMonth(12); }
-    else setMonth(m => m - 1);
+    if (month === 1) { setYear((y) => y - 1); setMonth(12); }
+    else setMonth((m) => m - 1);
   }
   function nextMonth() {
-    if (month === 12) { setYear(y => y + 1); setMonth(1); }
-    else setMonth(m => m + 1);
+    if (month === 12) { setYear((y) => y + 1); setMonth(1); }
+    else setMonth((m) => m + 1);
   }
 
   const firstDayOfMonth = new Date(year, month - 1, 1);
-  const startOffset = (firstDayOfMonth.getDay() + 6) % 7; // Monday-first
+  const startOffset = (firstDayOfMonth.getDay() + 6) % 7;
   const daysInMonth  = new Date(year, month, 0).getDate();
   const cells: (number | null)[] = [
     ...Array(startOffset).fill(null),
@@ -294,7 +611,7 @@ function CalendarView({ category }: { category: string }) {
           <p className="font-semibold text-sm">{monthLabel}</p>
           {monthTotal > 0 && (
             <p className="text-xs text-muted-foreground tabular-nums">
-              {formatMoney(monthTotal)} this month
+              {formatMoney(monthTotal, currency)} this month
             </p>
           )}
         </div>
@@ -305,7 +622,7 @@ function CalendarView({ category }: { category: string }) {
 
       {/* Day-of-week headers */}
       <div className="grid grid-cols-7">
-        {DAYS_OF_WEEK.map(d => (
+        {DAYS_OF_WEEK.map((d) => (
           <p key={d} className="text-[10px] font-semibold uppercase text-muted-foreground text-center py-1">{d}</p>
         ))}
       </div>
@@ -319,7 +636,7 @@ function CalendarView({ category }: { category: string }) {
         <div className="grid grid-cols-7 gap-1">
           {cells.map((day, idx) => {
             if (!day) return <div key={idx} className="h-[72px]" />;
-            const dateStr = `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+            const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
             const dayData = dayMap[dateStr];
             const isCurrentDay = isToday(new Date(year, month - 1, day));
             const dots = dayData ? getCategoryDots(dayData.expenses) : [];
@@ -329,17 +646,13 @@ function CalendarView({ category }: { category: string }) {
                 key={idx}
                 onClick={() => dayData && setSelectedDay(dayData)}
                 className={cn(
-                  'relative flex flex-col items-center h-[72px] rounded-xl pt-2 pb-1.5 gap-0.5 transition-all',
-                  'active:scale-95',
-                  isCurrentDay
-                    ? 'ring-2 ring-primary ring-offset-1 ring-offset-background'
-                    : '',
+                  'relative flex flex-col items-center h-[72px] rounded-xl pt-2 pb-1.5 gap-0.5 transition-all active:scale-95',
+                  isCurrentDay ? 'ring-2 ring-primary ring-offset-1 ring-offset-background' : '',
                   dayData
-                    ? 'bg-primary/8 hover:bg-primary/12 cursor-pointer'
+                    ? 'bg-primary/[0.08] hover:bg-primary/[0.12] cursor-pointer'
                     : 'hover:bg-accent/40 cursor-default',
                 )}
               >
-                {/* Day number */}
                 <span className={cn(
                   'text-xs font-semibold leading-none',
                   isCurrentDay ? 'text-primary' : 'text-foreground',
@@ -350,22 +663,15 @@ function CalendarView({ category }: { category: string }) {
 
                 {dayData ? (
                   <>
-                    {/* Amount */}
                     <span className={cn(
                       'text-[10px] font-bold leading-none tabular-nums',
                       isCurrentDay ? 'text-primary' : 'text-foreground/80',
                     )}>
-                      {formatCompact(dayData.total)}
+                      {formatMoneyCompact(dayData.total, currency)}
                     </span>
-
-                    {/* Category dot cluster */}
                     <div className="flex items-center gap-0.5 mt-auto mb-0.5">
                       {dots.map((color, i) => (
-                        <span
-                          key={i}
-                          className="h-1.5 w-1.5 rounded-full shrink-0"
-                          style={{ backgroundColor: color }}
-                        />
+                        <span key={i} className="h-1.5 w-1.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
                       ))}
                       {dayData.count > 3 && (
                         <span className="text-[8px] text-muted-foreground leading-none">+{dayData.count - 3}</span>
@@ -373,7 +679,7 @@ function CalendarView({ category }: { category: string }) {
                     </div>
                   </>
                 ) : (
-                  <span className="mt-auto mb-1 h-1.5 w-1.5" /> /* spacing placeholder */
+                  <span className="mt-auto mb-1 h-1.5 w-1.5" />
                 )}
               </button>
             );
@@ -395,7 +701,7 @@ function CalendarView({ category }: { category: string }) {
                     </p>
                   </div>
                   <span className="text-lg font-bold tabular-nums text-primary">
-                    {formatMoney(selectedDay.total)}
+                    {formatMoney(selectedDay.total, currency)}
                   </span>
                 </div>
               </SheetHeader>
@@ -405,12 +711,13 @@ function CalendarView({ category }: { category: string }) {
                     key={e.id}
                     expense={e}
                     onDelete={(id) => { deleteMutation.mutate(id); setSelectedDay(null); }}
+                    onClick={() => onExpenseClick(e.id)}
                   />
                 ))}
               </ul>
               <div className="px-5 pt-3 pb-2">
                 <Button asChild className="w-full" variant="outline" size="sm">
-                  <Link to="/expenses/new">
+                  <Link to={`/expenses/new?date=${selectedDay.date}`}>
                     <Plus className="h-4 w-4 mr-1.5" />
                     Add expense for this day
                   </Link>
@@ -424,11 +731,23 @@ function CalendarView({ category }: { category: string }) {
   );
 }
 
-// ── Page ─────────────────────────────────────────────────────────────────────
+// ── Page ──────────────────────────────────────────────────────────────────────
+
+type View = 'today' | 'calendar' | 'past';
 
 export default function PersonalExpensesPage() {
-  const [view, setView]         = useState<'today' | 'calendar'>('today');
+  const [view, setView]         = useState<View>('today');
   const [category, setCategory] = useState('ALL');
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
+  const deleteMutation    = useDeletePersonalExpense();
+
+  const TABS: { id: View; label: string; icon: React.ElementType }[] = [
+    { id: 'today',    label: 'Today',    icon: List },
+    { id: 'calendar', label: 'Calendar', icon: CalendarDays },
+    { id: 'past',     label: 'History',  icon: History },
+  ];
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-6 space-y-5 pb-24">
@@ -454,26 +773,22 @@ export default function PersonalExpensesPage() {
         </Select>
       </div>
 
-      {/* View toggle */}
+      {/* Tab toggle */}
       <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-        <button
-          onClick={() => setView('today')}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-            view === 'today' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <List className="h-3.5 w-3.5" /> Today
-        </button>
-        <button
-          onClick={() => setView('calendar')}
-          className={cn(
-            'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-            view === 'calendar' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
-          )}
-        >
-          <CalendarDays className="h-3.5 w-3.5" /> Calendar
-        </button>
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setView(id)}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+              view === id
+                ? 'bg-background shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" /> {label}
+          </button>
+        ))}
       </div>
 
       {/* Content */}
@@ -485,10 +800,29 @@ export default function PersonalExpensesPage() {
           exit={{ opacity: 0, y: -8 }}
           transition={{ duration: 0.15 }}
         >
-          {view === 'today'
-            ? <TodayView category={category} />
-            : <CalendarView category={category} />
-          }
+          {view === 'today' && (
+            <TodayView
+              category={category}
+              currency={preferredCurrency}
+              onExpenseClick={setDetailId}
+            />
+          )}
+          {view === 'calendar' && (
+            <CalendarView
+              category={category}
+              currency={preferredCurrency}
+              onExpenseClick={setDetailId}
+            />
+          )}
+          {view === 'past' && (
+            // key resets pagination + accumulated state when category filter changes
+            <PastExpensesView
+              key={category}
+              category={category}
+              currency={preferredCurrency}
+              onExpenseClick={setDetailId}
+            />
+          )}
         </motion.div>
       </AnimatePresence>
 
@@ -502,6 +836,13 @@ export default function PersonalExpensesPage() {
           <Plus className="h-6 w-6" />
         </Link>
       </Button>
+
+      {/* Expense detail dialog */}
+      <PersonalExpenseDetailDialog
+        expenseId={detailId}
+        onClose={() => setDetailId(null)}
+        onDelete={(id) => deleteMutation.mutate(id)}
+      />
     </div>
   );
 }

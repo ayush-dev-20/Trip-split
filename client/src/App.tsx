@@ -130,6 +130,7 @@ export default function App() {
           {/* Personal Expenses */}
           <Route path="/expenses" element={<PersonalExpensesPage />} />
           <Route path="/expenses/new" element={<CreatePersonalExpensePage />} />
+          <Route path="/expenses/:id/edit" element={<CreatePersonalExpensePage />} />
 
           {/* Expenses (trip-scoped) */}
           <Route path="/trips/:tripId/expenses" element={<ExpensesPage />} />

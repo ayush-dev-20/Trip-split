@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { useNavigate, Link } from 'react-router';
+import { useState, useRef, useEffect } from 'react';
+import { useNavigate, Link, useSearchParams, useParams } from 'react-router';
 import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, ArrowLeft, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -8,8 +8,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
+import { Skeleton } from '@/components/ui/skeleton';
 import { CATEGORY_STYLES } from '@/lib/categoryStyle';
-import { useCreatePersonalExpense } from '@/hooks/usePersonalExpenses';
+import {
+  useCreatePersonalExpense,
+  useUpdatePersonalExpense,
+  usePersonalExpense,
+} from '@/hooks/usePersonalExpenses';
 import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
 import { cn } from '@/lib/utils';
@@ -39,24 +44,52 @@ function todayDateValue() {
 
 export default function CreatePersonalExpensePage() {
   const navigate = useNavigate();
-  const createMutation = useCreatePersonalExpense();
+  const { id: editId } = useParams<{ id?: string }>();
+  const isEditMode = !!editId;
+
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
+  const [searchParams] = useSearchParams();
 
   const [form, setForm] = useState<Form>({
     title: '',
     amount: '',
     currency: preferredCurrency,
     category: 'MISCELLANEOUS',
-    date: todayDateValue(),
+    date: searchParams.get('date') || todayDateValue(),
     description: '',
     isRecurring: false,
     recurringPattern: '',
   });
+  const [formReady, setFormReady] = useState(!isEditMode); // in create mode, form is ready immediately
   const [error, setError] = useState('');
 
+  // Fetch existing expense in edit mode
+  const { data: existingExpense, isLoading: loadingExpense } = usePersonalExpense(editId ?? '');
+
+  // Pre-fill form once the existing expense loads
+  useEffect(() => {
+    if (!existingExpense) return;
+    setForm({
+      title:            existingExpense.title,
+      amount:           existingExpense.amount.toString(),
+      currency:         existingExpense.currency,
+      category:         existingExpense.category as ExpenseCategory,
+      date:             existingExpense.date.split('T')[0],
+      description:      existingExpense.description ?? '',
+      isRecurring:      existingExpense.isRecurring,
+      recurringPattern: existingExpense.recurringPattern ?? '',
+    });
+    setFormReady(true);
+  }, [existingExpense]);
+
+  const createMutation = useCreatePersonalExpense();
+  const updateMutation = useUpdatePersonalExpense(editId ?? '');
+
+  const isPending = isEditMode ? updateMutation.isPending : createMutation.isPending;
+
   // NLP / voice
-  const [nlpInput, setNlpInput]     = useState('');
-  const [nlpLoading, setNlpLoading] = useState(false);
+  const [nlpInput, setNlpInput]       = useState('');
+  const [nlpLoading, setNlpLoading]   = useState(false);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -111,11 +144,11 @@ export default function CreatePersonalExpensePage() {
       const result = await aiService.scanReceipt(file);
       setForm((prev) => ({
         ...prev,
-        title:    result.title  || prev.title,
-        amount:   result.amount?.toString()  || prev.amount,
-        currency: result.currency || prev.currency,
-        category: (result.category as ExpenseCategory) || prev.category,
-        date:     result.date?.split('T')[0] || prev.date,
+        title:       result.title  || prev.title,
+        amount:      result.amount?.toString()  || prev.amount,
+        currency:    result.currency || prev.currency,
+        category:    (result.category as ExpenseCategory) || prev.category,
+        date:        result.date?.split('T')[0] || prev.date,
         description: result.description || prev.description,
       }));
     } catch { /* silent */ } finally {
@@ -129,25 +162,47 @@ export default function CreatePersonalExpensePage() {
     e.preventDefault();
     setError('');
 
-    if (!form.title.trim())       return setError('Title is required.');
+    if (!form.title.trim())                      return setError('Title is required.');
     if (!form.amount || Number(form.amount) <= 0) return setError('Enter a valid amount.');
 
+    const payload = {
+      title:            form.title.trim(),
+      amount:           Number(form.amount),
+      currency:         form.currency,
+      category:         form.category,
+      date:             new Date(form.date).toISOString(),
+      description:      form.description || undefined,
+      isRecurring:      form.isRecurring,
+      recurringPattern: form.isRecurring && form.recurringPattern ? form.recurringPattern : undefined,
+    };
+
     try {
-      await createMutation.mutateAsync({
-        title:       form.title.trim(),
-        amount:      Number(form.amount),
-        currency:    form.currency,
-        category:    form.category,
-        date:        new Date(form.date).toISOString(),
-        description: form.description || undefined,
-        isRecurring:      form.isRecurring,
-        recurringPattern: form.isRecurring && form.recurringPattern ? form.recurringPattern : undefined,
-      });
+      if (isEditMode) {
+        await updateMutation.mutateAsync(payload);
+      } else {
+        await createMutation.mutateAsync(payload);
+      }
       navigate('/expenses');
     } catch {
-      setError('Failed to save expense. Please try again.');
+      setError(`Failed to ${isEditMode ? 'update' : 'save'} expense. Please try again.`);
     }
   };
+
+  // ── Loading skeleton (edit mode waiting for data) ────────────────────────
+
+  if (isEditMode && loadingExpense) {
+    return (
+      <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" asChild>
+            <Link to="/expenses"><ArrowLeft className="h-4 w-4" /></Link>
+          </Button>
+          <Skeleton className="h-6 w-32" />
+        </div>
+        {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5 pb-24">
@@ -157,7 +212,7 @@ export default function CreatePersonalExpensePage() {
           <Link to="/expenses"><ArrowLeft className="h-4 w-4" /></Link>
         </Button>
         <div>
-          <h1 className="text-xl font-bold">Add Expense</h1>
+          <h1 className="text-xl font-bold">{isEditMode ? 'Edit Expense' : 'Add Expense'}</h1>
           <p className="text-xs text-muted-foreground">Personal expense</p>
         </div>
       </div>
@@ -169,176 +224,180 @@ export default function CreatePersonalExpensePage() {
         </Alert>
       )}
 
-      {/* NLP bar */}
-      <Card>
-        <CardContent className="pt-4">
-          <Label className="text-xs text-muted-foreground mb-2 block">Quick add with AI</Label>
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-              <Input
-                className="pl-8 text-sm"
-                placeholder='e.g. "Coffee $4.50" or "Uber 12 euros"'
-                value={nlpInput}
-                onChange={(e) => setNlpInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleNLP()}
-              />
-            </div>
-            {('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) && (
-              <Button type="button" variant="outline" size="icon" onClick={toggleVoice} className={cn(isListening && 'text-destructive')}>
-                {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-              </Button>
-            )}
-            <Button type="button" variant="outline" size="icon" onClick={handleNLP} disabled={nlpLoading || !nlpInput.trim()}>
-              {nlpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              disabled={scanLoading}
-              onClick={() => receiptInputRef.current?.click()}
-            >
-              {scanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-            </Button>
-            <input
-              ref={receiptInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceiptScan(f); }}
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Form */}
-      <form onSubmit={handleSubmit} className="space-y-5">
-        {/* Title */}
-        <div className="space-y-1.5">
-          <Label htmlFor="title">Title <span className="text-destructive">*</span></Label>
-          <Input
-            id="title"
-            placeholder="What did you spend on?"
-            value={form.title}
-            onChange={(e) => set('title', e.target.value)}
-          />
-        </div>
-
-        {/* Amount + Currency */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="col-span-2 space-y-1.5">
-            <Label htmlFor="amount">Amount <span className="text-destructive">*</span></Label>
-            <Input
-              id="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              placeholder="0.00"
-              value={form.amount}
-              onChange={(e) => set('amount', e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="currency">Currency</Label>
-            <select
-              id="currency"
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
-              value={form.currency}
-              onChange={(e) => set('currency', e.target.value)}
-            >
-              {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Category */}
-        <div className="space-y-2">
-          <Label>Category</Label>
-          <div className="grid grid-cols-5 gap-2">
-            {CATEGORIES.map((c) => {
-              const style = CATEGORY_STYLES[c];
-              const Icon  = style.icon;
-              return (
-                <button
-                  key={c}
-                  type="button"
-                  onClick={() => set('category', c)}
-                  className={cn(
-                    'flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-medium transition-all',
-                    form.category === c
-                      ? `${style.bg} border-primary/30 shadow-sm`
-                      : 'border-border hover:border-border/80 hover:bg-accent/40'
-                  )}
-                >
-                  <Icon className={cn('h-4 w-4', form.category === c ? style.fg : 'text-muted-foreground')} />
-                  <span className={form.category === c ? style.fg : 'text-muted-foreground'}>{style.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Date */}
-        <div className="space-y-1.5">
-          <Label htmlFor="date">Date</Label>
-          <Input
-            id="date"
-            type="date"
-            value={form.date}
-            onChange={(e) => set('date', e.target.value)}
-          />
-        </div>
-
-        {/* Notes */}
-        <div className="space-y-1.5">
-          <Label htmlFor="notes">Notes</Label>
-          <Textarea
-            id="notes"
-            placeholder="Optional notes…"
-            rows={2}
-            value={form.description}
-            onChange={(e) => set('description', e.target.value)}
-          />
-        </div>
-
-        {/* Recurring */}
+      {/* NLP bar — only shown in create mode */}
+      {!isEditMode && (
         <Card>
-          <CardContent className="pt-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">Recurring expense</p>
-                <p className="text-xs text-muted-foreground">Mark as a regular expense</p>
-              </div>
-              <Switch
-                checked={form.isRecurring}
-                onCheckedChange={(v) => set('isRecurring', v)}
-              />
-            </div>
-            {form.isRecurring && (
-              <div className="space-y-1.5">
-                <Label htmlFor="pattern" className="text-xs">Pattern (e.g. "daily", "weekly")</Label>
+          <CardContent className="pt-4">
+            <Label className="text-xs text-muted-foreground mb-2 block">Quick add with AI</Label>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 <Input
-                  id="pattern"
-                  placeholder="daily / weekly / monthly"
-                  value={form.recurringPattern}
-                  onChange={(e) => set('recurringPattern', e.target.value)}
+                  className="pl-8 text-sm"
+                  placeholder='e.g. "Coffee $4.50" or "Uber 12 euros"'
+                  value={nlpInput}
+                  onChange={(e) => setNlpInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleNLP()}
                 />
               </div>
-            )}
+              {('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) && (
+                <Button type="button" variant="outline" size="icon" onClick={toggleVoice} className={cn(isListening && 'text-destructive')}>
+                  {isListening ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
+                </Button>
+              )}
+              <Button type="button" variant="outline" size="icon" onClick={handleNLP} disabled={nlpLoading || !nlpInput.trim()}>
+                {nlpLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                disabled={scanLoading}
+                onClick={() => receiptInputRef.current?.click()}
+              >
+                {scanLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              </Button>
+              <input
+                ref={receiptInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceiptScan(f); }}
+              />
+            </div>
           </CardContent>
         </Card>
+      )}
 
-        {/* Submit */}
-        <Button
-          type="submit"
-          className="w-full"
-          disabled={createMutation.isPending || !form.title.trim() || !form.amount}
-        >
-          {createMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-          Save Expense
-        </Button>
-      </form>
+      {/* Form */}
+      {formReady && (
+        <form onSubmit={handleSubmit} className="space-y-5">
+          {/* Title */}
+          <div className="space-y-1.5">
+            <Label htmlFor="title">Title <span className="text-destructive">*</span></Label>
+            <Input
+              id="title"
+              placeholder="What did you spend on?"
+              value={form.title}
+              onChange={(e) => set('title', e.target.value)}
+            />
+          </div>
+
+          {/* Amount + Currency */}
+          <div className="grid grid-cols-3 gap-3">
+            <div className="col-span-2 space-y-1.5">
+              <Label htmlFor="amount">Amount <span className="text-destructive">*</span></Label>
+              <Input
+                id="amount"
+                type="number"
+                min="0.01"
+                step="0.01"
+                placeholder="0.00"
+                value={form.amount}
+                onChange={(e) => set('amount', e.target.value)}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="currency">Currency</Label>
+              <select
+                id="currency"
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                value={form.currency}
+                onChange={(e) => set('currency', e.target.value)}
+              >
+                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Category */}
+          <div className="space-y-2">
+            <Label>Category</Label>
+            <div className="grid grid-cols-5 gap-2">
+              {CATEGORIES.map((c) => {
+                const style = CATEGORY_STYLES[c];
+                const Icon  = style.icon;
+                return (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => set('category', c)}
+                    className={cn(
+                      'flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-medium transition-all',
+                      form.category === c
+                        ? `${style.bg} border-primary/30 shadow-sm`
+                        : 'border-border hover:border-border/80 hover:bg-accent/40'
+                    )}
+                  >
+                    <Icon className={cn('h-4 w-4', form.category === c ? style.fg : 'text-muted-foreground')} />
+                    <span className={form.category === c ? style.fg : 'text-muted-foreground'}>{style.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Date */}
+          <div className="space-y-1.5">
+            <Label htmlFor="date">Date</Label>
+            <Input
+              id="date"
+              type="date"
+              value={form.date}
+              onChange={(e) => set('date', e.target.value)}
+            />
+          </div>
+
+          {/* Notes */}
+          <div className="space-y-1.5">
+            <Label htmlFor="notes">Notes</Label>
+            <Textarea
+              id="notes"
+              placeholder="Optional notes…"
+              rows={2}
+              value={form.description}
+              onChange={(e) => set('description', e.target.value)}
+            />
+          </div>
+
+          {/* Recurring */}
+          <Card>
+            <CardContent className="pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">Recurring expense</p>
+                  <p className="text-xs text-muted-foreground">Mark as a regular expense</p>
+                </div>
+                <Switch
+                  checked={form.isRecurring}
+                  onCheckedChange={(v) => set('isRecurring', v)}
+                />
+              </div>
+              {form.isRecurring && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="pattern" className="text-xs">Pattern (e.g. "daily", "weekly")</Label>
+                  <Input
+                    id="pattern"
+                    placeholder="daily / weekly / monthly"
+                    value={form.recurringPattern}
+                    onChange={(e) => set('recurringPattern', e.target.value)}
+                  />
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Submit */}
+          <Button
+            type="submit"
+            className="w-full"
+            disabled={isPending || !form.title.trim() || !form.amount}
+          >
+            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+            {isEditMode ? 'Update Expense' : 'Save Expense'}
+          </Button>
+        </form>
+      )}
     </div>
   );
 }

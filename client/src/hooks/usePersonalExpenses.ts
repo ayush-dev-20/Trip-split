@@ -12,6 +12,7 @@ export function usePersonalExpenses(params?: {
   return useQuery({
     queryKey: ['personal-expenses', params],
     queryFn: () => personalExpenseService.getAll(params),
+    staleTime: 60_000,
   });
 }
 
