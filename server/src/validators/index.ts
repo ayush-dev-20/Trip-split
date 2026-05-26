@@ -302,3 +302,52 @@ export const personalExpenseQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(50),
 });
+
+// ──────────────────────────────────
+// GROUP EXPENSE VALIDATORS
+// ──────────────────────────────────
+
+const splitTypeEnum = z.enum(['EQUAL', 'PERCENTAGE', 'EXACT', 'SHARES']);
+
+const groupSplitItemSchema = z.object({
+  userId: z.string().uuid(),
+  amount: z.number().nonnegative().optional(),
+  percentage: z.number().min(0).max(100).optional(),
+  shares: z.number().positive().optional(),
+});
+
+export const createGroupExpenseSchema = z.object({
+  title: z.string().min(1, 'Title is required').max(200),
+  description: z.string().max(1000).optional(),
+  amount: z.number().positive('Amount must be positive'),
+  currency: z.string().length(3).default('USD'),
+  category: expenseCategoryEnum.default('MISCELLANEOUS'),
+  date: z.string().datetime(),
+  splitType: splitTypeEnum.default('EQUAL'),
+  splits: z.array(groupSplitItemSchema).optional(), // omit for auto EQUAL split among all members
+  paidById: z.string().uuid().optional(),       // defaults to req.user.id
+  isRecurring: z.boolean().default(false),
+  recurringPattern: z.string().optional(),
+});
+
+export const updateGroupExpenseSchema = z.object({
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().max(1000).optional().nullable(),
+  amount: z.number().positive().optional(),
+  currency: z.string().length(3).optional(),
+  category: expenseCategoryEnum.optional(),
+  date: z.string().datetime().optional(),
+  splitType: splitTypeEnum.optional(),
+  splits: z.array(groupSplitItemSchema).optional(),
+  paidById: z.string().uuid().optional(),
+  isRecurring: z.boolean().optional(),
+  recurringPattern: z.string().optional().nullable(),
+});
+
+export const groupExpenseQuerySchema = z.object({
+  startDate: z.string().datetime().optional(),
+  endDate: z.string().datetime().optional(),
+  category: expenseCategoryEnum.optional(),
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(50),
+});

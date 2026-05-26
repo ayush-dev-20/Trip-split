@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as groups from '../controllers/groupController';
 import { authenticate, validate } from '../middleware';
 import { createGroupSchema, updateGroupSchema, idParamSchema, inviteCodeSchema } from '../validators';
+import groupExpenseRoutes from './groupExpenseRoutes';
 
 const router = Router();
 
@@ -19,5 +20,8 @@ router.post('/join/:code', groups.joinGroupByCode);
 
 // Members
 router.delete('/:id/members/:userId', groups.removeMember);
+
+// Group daily expenses (sub-router, inherits :groupId via mergeParams)
+router.use('/:groupId/expenses', groupExpenseRoutes);
 
 export default router;

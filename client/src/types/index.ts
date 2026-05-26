@@ -56,6 +56,7 @@ export interface Group {
   name: string;
   description?: string;
   avatarUrl?: string;
+  defaultCurrency: string;
   inviteCode: string;
   createdById: string;
   createdBy?: User;
@@ -511,6 +512,79 @@ export interface CreatePersonalExpensePayload {
   category: ExpenseCategory;
   description?: string;
   date: string;
+  isRecurring?: boolean;
+  recurringPattern?: string;
+}
+
+// ── Group Expense ─────────────────────────────────────────────────────────────
+
+export interface GroupExpense {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  exchangeRate: number;
+  baseAmount: number;
+  category: ExpenseCategory;
+  description?: string;
+  date: string;
+  splitType: SplitType;
+  isRecurring: boolean;
+  recurringPattern?: string;
+  receiptUrl?: string;
+  groupId: string;
+  paidById: string;
+  paidBy?: { id: string; name: string; avatarUrl?: string | null };
+  splits?: (ExpenseSplit & { user?: { id: string; name: string; avatarUrl?: string | null } })[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GroupExpenseCalendarDay {
+  date: string;
+  total: number;
+  count: number;
+  expenses: GroupExpense[];
+}
+
+export type GroupAnalyticsPeriod = 'week' | 'month' | 'quarter' | 'year';
+
+export interface GroupAnalyticsMember {
+  userId: string;
+  name: string;
+  avatarUrl?: string | null;
+  totalPaid: number;
+  fairShare: number;
+  balance: number;
+}
+
+export interface GroupAnalytics {
+  period: GroupAnalyticsPeriod;
+  totalSpent: number;
+  currency: string;
+  transactionCount: number;
+  avgPerDay: number;
+  topCategory: string;
+  categoryBreakdown: { category: string; total: number; count: number; percentage: number }[];
+  timeSeriesData: { label: string; amount: number }[];
+  memberBreakdown: GroupAnalyticsMember[];
+  comparisonToPrev: {
+    previousTotal: number;
+    changePercent: number;
+    direction: 'up' | 'down' | 'same';
+  };
+}
+
+export interface CreateGroupExpensePayload {
+  title: string;
+  amount: number;
+  currency?: string;
+  category: ExpenseCategory;
+  description?: string;
+  date: string;
+  splitType?: SplitType;
+  splits?: { userId: string; amount?: number; percentage?: number; shares?: number }[];
+  paidById?: string;
   isRecurring?: boolean;
   recurringPattern?: string;
 }

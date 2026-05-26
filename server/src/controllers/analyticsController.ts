@@ -694,3 +694,112 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
     },
   });
 });
+
+/**
+ * GET /api/analytics/group/:groupId?period=week|month|quarter|year&referenceDate=ISO
+ */
+export const getGroupAnalytics = asyncHandler(async (req: Request, res: Response) => {
+  const userId  = req.user!.id as string;
+  const groupId = req.params.groupId as string;
+  const period  = (req.query.period as Period) || 'month';
+  const ref = req.query.referenceDate ? new Date(req.query.referenceDate as string) : new Date();
+
+  if (!['week', 'month', 'quarter', 'year'].includes(period)) {
+    throw AppError.badRequest('period must be week, month, quarter, or year');
+  }
+
+  // Verify membership
+  const member = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId, userId } },
+  });
+  if (!member) throw AppError.forbidden('You are not a member of this group');
+
+  const { start, end } = getPeriodWindow(period, ref);
+  const prevStart = getPeriodWindow(period, shiftPeriodBack(period, start)).start;
+  const prevEnd   = new Date(start.getTime() - 1);
+
+  const [currentExpenses, previousExpenses, groupMembers, group] = await Promise.all([
+    prisma.expense.findMany({
+      where: { groupId, tripId: null, date: { gte: start, lte: end } },
+      include: {
+        paidBy: { select: { id: true, name: true, avatarUrl: true } },
+        splits: true,
+      },
+    }),
+    prisma.expense.findMany({
+      where: { groupId, tripId: null, date: { gte: prevStart, lte: prevEnd } },
+    }),
+    prisma.groupMember.findMany({
+      where: { groupId: groupId as string },
+      include: { user: { select: { id: true, name: true, avatarUrl: true } } },
+    }),
+    prisma.group.findUnique({ where: { id: groupId }, select: { defaultCurrency: true } }),
+  ]);
+
+  const totalSpent    = currentExpenses.reduce((s, e) => s + e.baseAmount, 0);
+  const previousTotal = previousExpenses.reduce((s, e) => s + e.baseAmount, 0);
+  const daysDiff      = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
+  const currency      = group?.defaultCurrency || 'USD';
+
+  // Category breakdown
+  const catMap: Record<string, { total: number; count: number }> = {};
+  for (const e of currentExpenses) {
+    if (!catMap[e.category]) catMap[e.category] = { total: 0, count: 0 };
+    catMap[e.category].total += e.baseAmount;
+    catMap[e.category].count += 1;
+  }
+  const categoryBreakdown = Object.entries(catMap)
+    .map(([category, { total, count }]) => ({
+      category,
+      total: Math.round(total * 100) / 100,
+      count,
+      percentage: totalSpent > 0 ? Math.round((total / totalSpent) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const topCategory = categoryBreakdown[0]?.category || 'MISCELLANEOUS';
+
+  // Per-member: totalPaid = expenses they paid, fairShare = equal share of total
+  const memberCount   = groupMembers.length || 1;
+  const fairShareEach = totalSpent / memberCount;
+
+  const memberBreakdown = groupMembers.map((gm) => {
+    const user = gm.user;
+    const totalPaid = currentExpenses
+      .filter((e) => e.paidById === user.id)
+      .reduce((s, e) => s + e.baseAmount, 0);
+    const balance = Math.round((totalPaid - fairShareEach) * 100) / 100;
+    return {
+      userId: user.id,
+      name: user.name,
+      avatarUrl: (user as { avatarUrl?: string | null }).avatarUrl ?? null,
+      totalPaid: Math.round(totalPaid * 100) / 100,
+      fairShare: Math.round(fairShareEach * 100) / 100,
+      balance,
+    };
+  });
+
+  const changePercent = previousTotal > 0
+    ? Math.round(((totalSpent - previousTotal) / previousTotal) * 1000) / 10
+    : 0;
+
+  res.json({
+    success: true,
+    data: {
+      period,
+      totalSpent: Math.round(totalSpent * 100) / 100,
+      currency,
+      transactionCount: currentExpenses.length,
+      avgPerDay: Math.round((totalSpent / daysDiff) * 100) / 100,
+      topCategory,
+      categoryBreakdown,
+      timeSeriesData: buildTimeSeries(period, start, end, currentExpenses),
+      memberBreakdown,
+      comparisonToPrev: {
+        previousTotal: Math.round(previousTotal * 100) / 100,
+        changePercent,
+        direction: totalSpent > previousTotal ? 'up' : totalSpent < previousTotal ? 'down' : 'same',
+      },
+    },
+  });
+});

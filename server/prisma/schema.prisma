@@ -199,8 +199,9 @@ model Group {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  members GroupMember[]
-  trips   Trip[]
+  members  GroupMember[]
+  trips    Trip[]
+  expenses Expense[]
 
   @@index([inviteCode])
 }
@@ -290,6 +291,8 @@ model Expense {
   receiptUrl      String?
   tripId          String?
   trip            Trip?           @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  groupId         String?
+  group           Group?          @relation(fields: [groupId], references: [id], onDelete: Cascade)
   paidById        String
   paidBy          User            @relation("PaidByUser", fields: [paidById], references: [id])
   createdAt       DateTime        @default(now())
@@ -301,10 +304,12 @@ model Expense {
   receipts  Receipt[]
 
   @@index([tripId])
+  @@index([groupId])
   @@index([paidById])
   @@index([category])
   @@index([date])
   @@index([paidById, tripId])
+  @@index([paidById, groupId])
 }
 
 model ExpenseSplit {

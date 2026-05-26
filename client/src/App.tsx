@@ -22,6 +22,7 @@ import CreateTripPage from '@/pages/trips/CreateTripPage';
 import EditTripPage from '@/pages/trips/EditTripPage';
 import GroupsPage from '@/pages/groups/GroupsPage';
 import GroupDetailPage from '@/pages/groups/GroupDetailPage';
+import CreateGroupExpensePage from '@/pages/groups/CreateGroupExpensePage';
 import ExpensesPage from '@/pages/expenses/ExpensesPage';
 import CreateExpensePage from '@/pages/expenses/CreateExpensePage';
 import ExpenseDetailPage from '@/pages/expenses/ExpenseDetailPage';
@@ -126,6 +127,8 @@ export default function App() {
           {/* Groups */}
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/groups/:groupId" element={<GroupDetailPage />} />
+          <Route path="/groups/:groupId/expenses/new" element={<CreateGroupExpensePage />} />
+          <Route path="/groups/:groupId/expenses/:id/edit" element={<CreateGroupExpensePage />} />
 
           {/* Personal Expenses */}
           <Route path="/expenses" element={<PersonalExpensesPage />} />

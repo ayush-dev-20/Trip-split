@@ -42,6 +42,18 @@ io.on('connection', (socket) => {
     logger.debug('Socket', `Socket ${socket.id} joined user:${userId}`);
   });
 
+  // Join a group room to receive real-time group expense events
+  socket.on('join:group', (groupId: string) => {
+    socket.join(`group:${groupId}`);
+    logger.debug('Socket', `Socket ${socket.id} joined group:${groupId}`);
+  });
+
+  // Leave a group room
+  socket.on('leave:group', (groupId: string) => {
+    socket.leave(`group:${groupId}`);
+    logger.debug('Socket', `Socket ${socket.id} left group:${groupId}`);
+  });
+
   socket.on('disconnect', () => {
     logger.debug('Socket', `Client disconnected: ${socket.id}`);
   });

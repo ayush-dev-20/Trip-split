@@ -9,6 +9,8 @@ interface SocketContextValue {
   isConnected: boolean;
   joinTrip: (tripId: string) => void;
   leaveTrip: (tripId: string) => void;
+  joinGroup: (groupId: string) => void;
+  leaveGroup: (groupId: string) => void;
 }
 
 const SocketContext = createContext<SocketContextValue>({
@@ -16,6 +18,8 @@ const SocketContext = createContext<SocketContextValue>({
   isConnected: false,
   joinTrip: () => {},
   leaveTrip: () => {},
+  joinGroup: () => {},
+  leaveGroup: () => {},
 });
 
 // WebSockets must connect directly to the API server (Render), not the frontend host (Vercel).
@@ -73,9 +77,17 @@ export function SocketProvider({ children }: { children: React.ReactNode }) {
     socketRef.current?.emit('leave:trip', tripId);
   }
 
+  function joinGroup(groupId: string) {
+    socketRef.current?.emit('join:group', groupId);
+  }
+
+  function leaveGroup(groupId: string) {
+    socketRef.current?.emit('leave:group', groupId);
+  }
+
   return (
     <SocketContext.Provider
-      value={{ socket: socketRef.current, isConnected, joinTrip, leaveTrip }}
+      value={{ socket: socketRef.current, isConnected, joinTrip, leaveTrip, joinGroup, leaveGroup }}
     >
       {children}
     </SocketContext.Provider>
