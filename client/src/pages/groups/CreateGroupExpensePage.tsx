@@ -56,7 +56,7 @@ export default function CreateGroupExpensePage() {
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
 
   const { data: group } = useGroup(groupId!);
-  const groupCurrency = group?.defaultCurrency ?? preferredCurrency;
+  const groupCurrency = preferredCurrency;
 
   const [form, setForm] = useState<Form>({
     title:            '',
@@ -74,12 +74,6 @@ export default function CreateGroupExpensePage() {
   const [formReady, setFormReady] = useState(!isEditMode);
   const [error, setError] = useState('');
 
-  // Update currency default when group loads
-  useEffect(() => {
-    if (!isEditMode && group?.defaultCurrency) {
-      setForm((prev) => ({ ...prev, currency: group.defaultCurrency }));
-    }
-  }, [group?.defaultCurrency, isEditMode]);
 
   // Fetch existing expense in edit mode
   const { data: existingExpense, isLoading: loadingExpense } = useGroupExpense(groupId!, editId ?? '');

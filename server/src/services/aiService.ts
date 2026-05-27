@@ -432,6 +432,106 @@ User question: ${message}`,
 }
 
 /**
+ * Personal expense chatbot — answers questions about the user's own daily spending.
+ */
+export async function chatWithPersonalExpenses(
+  message: string,
+  context: {
+    currency: string;
+    totalSpent: number;
+    totalExpenses: number;
+    topCategory: string;
+    dateRange: { from: string; to: string } | null;
+    categoryTotals: { category: string; total: number; count: number }[];
+    expenses: { title: string; amount: number; currency: string; category: string; date: string; isRecurring: boolean }[];
+  }
+): Promise<string> {
+  const categoryText = context.categoryTotals
+    .map((c) => `${c.category}: ${context.currency} ${c.total.toFixed(2)} (${c.count} transactions)`)
+    .join('; ');
+
+  return askText(
+    `You are a helpful personal finance assistant. The user is asking about their own daily expenses.
+Currency: ${context.currency}
+Total Spent: ${context.currency} ${context.totalSpent.toFixed(2)} across ${context.totalExpenses} expenses
+Top Category: ${context.topCategory}
+${context.dateRange ? `Date Range: ${context.dateRange.from} to ${context.dateRange.to}` : ''}
+
+=== SPENDING BY CATEGORY ===
+${categoryText}
+
+=== RECENT EXPENSES (last ${Math.min(context.expenses.length, 50)}) ===
+${JSON.stringify(context.expenses.slice(0, 50), null, 0)}
+
+IMPORTANT RULES:
+- All amounts are in ${context.currency} unless the expense has its own currency listed.
+- Be concise, friendly, and helpful with budgeting advice when relevant.
+- Format currency amounts with the currency symbol or code.
+- If you can't answer from the data, say so.
+
+User question: ${message}`,
+    "Sorry, I couldn't process that question."
+  );
+}
+
+/**
+ * Group expense chatbot — answers questions about shared group expenses.
+ */
+export async function chatWithGroupExpenses(
+  message: string,
+  context: {
+    groupName: string;
+    currency: string;
+    totalSpent: number;
+    members: string[];
+    categoryTotals: { category: string; total: number; count: number }[];
+    memberTotals: { name: string; totalPaid: number; fairShare: number; balance: number }[];
+    expenses: {
+      title: string;
+      amount: number;
+      currency: string;
+      category: string;
+      date: string;
+      paidBy: string;
+      splitCount: number;
+    }[];
+  }
+): Promise<string> {
+  const categoryText = context.categoryTotals
+    .map((c) => `${c.category}: ${context.currency} ${c.total.toFixed(2)} (${c.count} transactions)`)
+    .join('; ');
+
+  const memberText = context.memberTotals
+    .map((m) => `${m.name}: paid ${context.currency} ${m.totalPaid.toFixed(2)}, fair share ${context.currency} ${m.fairShare.toFixed(2)}, balance ${m.balance >= 0 ? '+' : ''}${context.currency} ${m.balance.toFixed(2)}`)
+    .join('; ');
+
+  return askText(
+    `You are a helpful expense assistant for the group "${context.groupName}".
+Currency: ${context.currency}
+Members: ${context.members.join(', ')}
+Total Spent: ${context.currency} ${context.totalSpent.toFixed(2)}
+
+=== MEMBER BREAKDOWN ===
+${memberText}
+
+=== SPENDING BY CATEGORY ===
+${categoryText}
+
+=== RECENT EXPENSES (last ${Math.min(context.expenses.length, 50)}) ===
+${JSON.stringify(context.expenses.slice(0, 50), null, 0)}
+
+IMPORTANT RULES:
+- A positive balance means the member paid more than their fair share (is owed money).
+- A negative balance means the member paid less than their fair share (owes money).
+- Be concise, friendly, and accurate. Format currency amounts with the currency code.
+- If you can't answer from the data, say so.
+
+User question: ${message}`,
+    "Sorry, I couldn't process that question."
+  );
+}
+
+/**
  * AI Expense Prediction — Predict trip cost based on history.
  */
 export async function predictTripCost(data: {

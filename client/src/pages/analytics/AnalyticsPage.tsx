@@ -56,7 +56,16 @@ function getCategoryColor(category: string, idx: number) {
 }
 
 function fmt(amount: number, currency: string) {
-  return `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  }
 }
 
 // Compact format for chart axis ticks — uses the real currency symbol (e.g. ₹, $, €)

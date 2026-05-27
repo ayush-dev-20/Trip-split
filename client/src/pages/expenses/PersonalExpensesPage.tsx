@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
-  History, Trash2, Loader2, Pencil,
+  History, Trash2, Loader2, Pencil, Sparkles,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -18,6 +18,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import EmptyState from '@/components/ui/EmptyState';
+import AIChatPanel from '@/components/ui/AIChatPanel';
+import { aiService } from '@/services/aiService';
 import {
   usePersonalExpenses,
   usePersonalExpense,
@@ -733,7 +735,7 @@ function CalendarView({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type View = 'today' | 'calendar' | 'past';
+type View = 'today' | 'calendar' | 'past' | 'ai';
 
 export default function PersonalExpensesPage() {
   const [view, setView]         = useState<View>('today');
@@ -747,6 +749,7 @@ export default function PersonalExpensesPage() {
     { id: 'today',    label: 'Today',    icon: List },
     { id: 'calendar', label: 'Calendar', icon: CalendarDays },
     { id: 'past',     label: 'History',  icon: History },
+    { id: 'ai',       label: 'AI',       icon: Sparkles },
   ];
 
   return (
@@ -822,6 +825,16 @@ export default function PersonalExpensesPage() {
               currency={preferredCurrency}
               onExpenseClick={setDetailId}
             />
+          )}
+          {view === 'ai' && (
+            <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+              <AIChatPanel
+                mutationFn={(msg) => aiService.chatbotPersonal(msg)}
+                placeholder="Ask about your expenses…"
+                emptyTitle="Ask about your spending"
+                emptySubtitle='"How much on food this week?" · "Show my top categories"'
+              />
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

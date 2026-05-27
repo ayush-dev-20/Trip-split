@@ -109,4 +109,10 @@ export const aiService = {
 
   predictCost: (tripId: string) =>
     api.post<{ success: boolean; data: unknown }>('/ai/predict-cost', { tripId }).then((r) => r.data.data),
+
+  chatbotPersonal: (message: string) =>
+    api.post<{ success: boolean; data: { answer: string } }>('/ai/chat-personal', { message }).then((r) => r.data.data.answer),
+
+  chatbotGroup: (groupId: string, message: string) =>
+    api.post<{ success: boolean; data: { answer: string } }>('/ai/chat-group', { groupId, message }).then((r) => r.data.data.answer),
 };

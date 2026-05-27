@@ -3,7 +3,7 @@ import { useExpense, useDeleteExpense, useAddComment, useAddReaction } from '@/h
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
 import UserAvatar from '@/components/ui/UserAvatar';
-import { Trash2, MessageCircle, Send, Loader2 } from 'lucide-react';
+import { Trash2, MessageCircle, Send, Loader2, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { getCategoryStyle } from '@/lib/categoryStyle';
+import AIChatPanel from '@/components/ui/AIChatPanel';
+import { aiService } from '@/services/aiService';
 import { formatMoney, formatDate, formatRelativeTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -213,6 +215,21 @@ export default function ExpenseDetailPage() {
             {addComment.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           </Button>
         </form>
+      </div>
+
+      {/* Ask AI */}
+      <div>
+        <h2 className="text-base font-semibold mb-3 px-1 flex items-center gap-2">
+          <Sparkles className="h-4 w-4" /> Ask AI
+        </h2>
+        <div className="h-[50vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+          <AIChatPanel
+            mutationFn={(msg) => aiService.chatbot(tripId!, msg)}
+            placeholder="Ask about this expense…"
+            emptyTitle="Ask AI about this expense"
+            emptySubtitle='"Who owes what?" · "Is this split fairly?"'
+          />
+        </div>
       </div>
     </div>
   );

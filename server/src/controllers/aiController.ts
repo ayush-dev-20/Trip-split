@@ -371,6 +371,138 @@ export const chatbot = asyncHandler(async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/ai/chat-personal
+ */
+export const chatbotPersonal = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const { message } = req.body;
+  if (!message) throw AppError.badRequest('message is required');
+
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { preferredCurrency: true } });
+  const currency = user?.preferredCurrency || 'USD';
+
+  const expenses = await prisma.expense.findMany({
+    where: { paidById: userId, tripId: null, groupId: null },
+    orderBy: { date: 'desc' },
+    take: 100,
+    select: { title: true, amount: true, currency: true, baseAmount: true, category: true, date: true, isRecurring: true },
+  });
+
+  const totalSpent = expenses.reduce((s, e) => s + e.baseAmount, 0);
+
+  const categoryMap: Record<string, { total: number; count: number }> = {};
+  for (const e of expenses) {
+    if (!categoryMap[e.category]) categoryMap[e.category] = { total: 0, count: 0 };
+    categoryMap[e.category].total += e.baseAmount;
+    categoryMap[e.category].count += 1;
+  }
+  const categoryTotals = Object.entries(categoryMap)
+    .map(([category, v]) => ({ category, ...v }))
+    .sort((a, b) => b.total - a.total);
+
+  const topCategory = categoryTotals[0]?.category || 'None';
+  const dateRange = expenses.length > 0
+    ? { from: expenses[expenses.length - 1].date.toISOString().split('T')[0], to: expenses[0].date.toISOString().split('T')[0] }
+    : null;
+
+  const answer = await aiService.chatWithPersonalExpenses(message, {
+    currency,
+    totalSpent,
+    totalExpenses: expenses.length,
+    topCategory,
+    dateRange,
+    categoryTotals,
+    expenses: expenses.map((e) => ({
+      title: e.title,
+      amount: e.baseAmount,
+      currency,
+      category: e.category,
+      date: e.date.toISOString().split('T')[0],
+      isRecurring: e.isRecurring,
+    })),
+  });
+
+  res.json({ success: true, data: { answer } });
+});
+
+/**
+ * POST /api/ai/chat-group
+ */
+export const chatbotGroup = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const { groupId, message } = req.body;
+  if (!groupId || !message) throw AppError.badRequest('groupId and message are required');
+
+  const member = await prisma.groupMember.findUnique({
+    where: { groupId_userId: { groupId, userId } },
+  });
+  if (!member) throw AppError.forbidden('You are not a member of this group');
+
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    include: {
+      members: { include: { user: { select: { id: true, name: true } } } },
+    },
+  });
+  if (!group) throw AppError.notFound('Group not found');
+
+  const expenses = await prisma.expense.findMany({
+    where: { groupId, tripId: null },
+    orderBy: { date: 'desc' },
+    take: 100,
+    include: {
+      paidBy: { select: { id: true, name: true } },
+      splits: { select: { userId: true, amount: true } },
+    },
+  });
+
+  const totalSpent = expenses.reduce((s, e) => s + e.baseAmount, 0);
+  const currency = (group as any).defaultCurrency || 'USD';
+
+  const categoryMap: Record<string, { total: number; count: number }> = {};
+  for (const e of expenses) {
+    if (!categoryMap[e.category]) categoryMap[e.category] = { total: 0, count: 0 };
+    categoryMap[e.category].total += e.baseAmount;
+    categoryMap[e.category].count += 1;
+  }
+  const categoryTotals = Object.entries(categoryMap)
+    .map(([category, v]) => ({ category, ...v }))
+    .sort((a, b) => b.total - a.total);
+
+  // Member payment totals
+  const memberPayMap: Record<string, number> = {};
+  for (const e of expenses) {
+    if (!memberPayMap[e.paidById]) memberPayMap[e.paidById] = 0;
+    memberPayMap[e.paidById] += e.baseAmount;
+  }
+  const fairShare = group.members.length > 0 ? totalSpent / group.members.length : 0;
+  const memberTotals = group.members.map((m: any) => {
+    const paid = memberPayMap[m.userId] || 0;
+    return { name: m.user.name, totalPaid: paid, fairShare, balance: paid - fairShare };
+  });
+
+  const answer = await aiService.chatWithGroupExpenses(message, {
+    groupName: group.name,
+    currency,
+    totalSpent,
+    members: group.members.map((m: any) => m.user.name),
+    categoryTotals,
+    memberTotals,
+    expenses: expenses.map((e) => ({
+      title: e.title,
+      amount: e.baseAmount,
+      currency,
+      category: e.category,
+      date: e.date.toISOString().split('T')[0],
+      paidBy: (e.paidBy as any).name,
+      splitCount: e.splits.length,
+    })),
+  });
+
+  res.json({ success: true, data: { answer } });
+});
+
+/**
  * POST /api/ai/predict-cost
  */
 export const predictCost = asyncHandler(async (req: Request, res: Response) => {

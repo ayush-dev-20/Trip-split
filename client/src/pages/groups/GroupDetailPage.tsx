@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Map, Plus, Copy, Trash2, Loader2, Check, MapPin,
   Wallet, ChevronLeft, ChevronRight, History, List, CalendarDays,
-  TrendingUp, TrendingDown, Minus, BarChart2, Pencil,
+  TrendingUp, TrendingDown, Minus, BarChart2, Pencil, Sparkles,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -37,6 +37,8 @@ import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { GroupExpense, GroupAnalyticsPeriod, ExpenseCategory } from '@/types';
+import AIChatPanel from '@/components/ui/AIChatPanel';
+import { aiService } from '@/services/aiService';
 
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 
@@ -455,7 +457,7 @@ function GroupExpensesTab({ groupId, currency }: { groupId: string; currency: st
 
 const PERIODS: GroupAnalyticsPeriod[] = ['week', 'month', 'quarter', 'year'];
 
-function GroupAnalyticsTab({ groupId }: { groupId: string }) {
+function GroupAnalyticsTab({ groupId, currency }: { groupId: string; currency: string }) {
   const [period, setPeriod] = useState<GroupAnalyticsPeriod>('month');
   const { data, isLoading } = useGroupAnalytics(groupId, period);
 
@@ -487,7 +489,7 @@ function GroupAnalyticsTab({ groupId }: { groupId: string }) {
       <div className="grid grid-cols-2 gap-3">
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Total Spent</p>
-          <p className="text-xl font-bold mt-1 tabular-nums">{formatMoney(data.totalSpent, data.currency)}</p>
+          <p className="text-xl font-bold mt-1 tabular-nums">{formatMoney(data.totalSpent, currency)}</p>
           <div className="flex items-center gap-1 mt-1">
             {delta.direction === 'up'   && <TrendingUp   className="h-3 w-3 text-destructive" />}
             {delta.direction === 'down' && <TrendingDown className="h-3 w-3 text-green-600" />}
@@ -503,7 +505,7 @@ function GroupAnalyticsTab({ groupId }: { groupId: string }) {
         </Card>
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Daily Average</p>
-          <p className="text-xl font-bold mt-1 tabular-nums">{formatMoney(data.avgPerDay, data.currency)}</p>
+          <p className="text-xl font-bold mt-1 tabular-nums">{formatMoney(data.avgPerDay, currency)}</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Top Category</p>
@@ -519,8 +521,8 @@ function GroupAnalyticsTab({ groupId }: { groupId: string }) {
             <BarChart data={data.timeSeriesData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
               <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, data.currency)} width={55} />
-              <Tooltip formatter={(v: number) => formatMoney(v, data.currency)} />
+              <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, currency)} width={55} />
+              <Tooltip formatter={(v: number) => formatMoney(v, currency)} />
               <Bar dataKey="amount" fill="hsl(var(--primary))" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -536,7 +538,7 @@ function GroupAnalyticsTab({ groupId }: { groupId: string }) {
               <div key={c.category} className="space-y-1">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-medium">{CATEGORY_STYLES[c.category as ExpenseCategory]?.label ?? c.category}</span>
-                  <span className="text-muted-foreground tabular-nums">{formatMoney(c.total, data.currency)} · {c.percentage}%</span>
+                  <span className="text-muted-foreground tabular-nums">{formatMoney(c.total, currency)} · {c.percentage}%</span>
                 </div>
                 <div className="h-1.5 bg-muted rounded-full overflow-hidden">
                   <div className="h-full rounded-full" style={{ width: `${c.percentage}%`, backgroundColor: getCategoryColor(c.category, idx) }} />
@@ -560,9 +562,9 @@ function GroupAnalyticsTab({ groupId }: { groupId: string }) {
                     <span className="text-sm font-medium">{m.name}</span>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm font-semibold tabular-nums">{formatMoney(m.totalPaid, data.currency)}</p>
+                    <p className="text-sm font-semibold tabular-nums">{formatMoney(m.totalPaid, currency)}</p>
                     <p className={cn('text-xs tabular-nums', m.balance >= 0 ? 'text-green-600' : 'text-destructive')}>
-                      {m.balance >= 0 ? '+' : ''}{formatMoney(m.balance, data.currency)}
+                      {m.balance >= 0 ? '+' : ''}{formatMoney(m.balance, currency)}
                     </p>
                   </div>
                 </div>
@@ -597,7 +599,7 @@ function GroupAnalyticsTab({ groupId }: { groupId: string }) {
                   <Cell key={c.category} fill={getCategoryColor(c.category, idx)} />
                 ))}
               </Pie>
-              <Tooltip formatter={(v: number) => formatMoney(v, data.currency)} />
+              <Tooltip formatter={(v: number) => formatMoney(v, currency)} />
             </PieChart>
           </ResponsiveContainer>
         </Card>
@@ -700,11 +702,12 @@ function OverviewTab({ group, trips, copyCode, copied }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'expenses' | 'analytics';
+type Tab = 'overview' | 'expenses' | 'analytics' | 'ai';
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',   label: 'Overview',   icon: Users },
   { id: 'expenses',   label: 'Expenses',   icon: Wallet },
   { id: 'analytics',  label: 'Analytics',  icon: BarChart2 },
+  { id: 'ai',         label: 'AI',         icon: Sparkles },
 ];
 
 export default function GroupDetailPage() {
@@ -720,7 +723,7 @@ export default function GroupDetailPage() {
   if (isLoading || !group) return <PageLoader />;
 
   const trips = tripsData?.trips ?? [];
-  const currency = group.defaultCurrency || preferredCurrency;
+  const currency = preferredCurrency;
 
   const copyCode = () => {
     navigator.clipboard.writeText(group.inviteCode);
@@ -781,7 +784,17 @@ export default function GroupDetailPage() {
             <GroupExpensesTab groupId={groupId!} currency={currency} />
           )}
           {activeTab === 'analytics' && (
-            <GroupAnalyticsTab groupId={groupId!} />
+            <GroupAnalyticsTab groupId={groupId!} currency={currency} />
+          )}
+          {activeTab === 'ai' && (
+            <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+              <AIChatPanel
+                mutationFn={(msg) => aiService.chatbotGroup(groupId!, msg)}
+                placeholder="Ask about group expenses…"
+                emptyTitle="Ask about group spending"
+                emptySubtitle='"Who paid the most?" · "What did we spend on food?"'
+              />
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

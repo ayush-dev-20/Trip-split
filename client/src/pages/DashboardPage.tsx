@@ -21,6 +21,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
+import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
 const guideSteps = [
@@ -95,7 +96,7 @@ export default function DashboardPage() {
   const stats = [
     { label: 'Active Trips', value: activeTrips.length, icon: Map, color: 'text-blue-600 bg-blue-100 dark:bg-blue-900/30' },
     { label: 'Groups', value: groups?.length ?? 0, icon: Users, color: 'text-purple-600 bg-purple-100 dark:bg-purple-900/30' },
-    { label: 'Total Spent', value: `${primaryCurrency} ${totalSpent.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, icon: DollarSign, color: 'text-green-600 bg-green-100 dark:bg-green-900/30' },
+    { label: 'Total Spent', value: formatMoney(totalSpent, primaryCurrency), icon: DollarSign, color: 'text-green-600 bg-green-100 dark:bg-green-900/30' },
     { label: 'Total Trips', value: trips.length, icon: TrendingUp, color: 'text-orange-600 bg-orange-100 dark:bg-orange-900/30' },
   ];
 
@@ -276,7 +277,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <span className="text-sm font-semibold text-red-600 dark:text-red-400 shrink-0">
-                        {user?.preferredCurrency ?? 'USD'} {entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatMoney(entry.amount, user?.preferredCurrency ?? 'USD')}
                       </span>
                     </Link>
                   ))
@@ -324,7 +325,7 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       <span className="text-sm font-semibold text-green-600 dark:text-green-400 shrink-0">
-                        {user?.preferredCurrency ?? 'USD'} {entry.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {formatMoney(entry.amount, user?.preferredCurrency ?? 'USD')}
                       </span>
                     </Link>
                   ))
