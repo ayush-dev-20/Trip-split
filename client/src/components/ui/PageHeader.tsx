@@ -17,7 +17,7 @@ export default function PageHeader({ title, description, back, actions, icon, cl
   const navigate = useNavigate();
 
   return (
-    <div className={cn('flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between', className)}>
+    <div className={cn('flex items-start justify-between gap-3', className)}>
       <div className="flex items-start gap-3 min-w-0">
         {back && (
           <Button

@@ -313,7 +313,7 @@ export default function CreatePersonalExpensePage() {
           {/* Category */}
           <div className="space-y-2">
             <Label>Category</Label>
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
               {CATEGORIES.map((c) => {
                 const style = CATEGORY_STYLES[c];
                 const Icon  = style.icon;
@@ -323,14 +323,14 @@ export default function CreatePersonalExpensePage() {
                     type="button"
                     onClick={() => set('category', c)}
                     className={cn(
-                      'flex flex-col items-center gap-1 py-2 rounded-xl border text-[10px] font-medium transition-all',
+                      'flex flex-col items-center gap-1 py-2 px-1 rounded-xl border text-[10px] font-medium transition-all',
                       form.category === c
                         ? `${style.bg} border-primary/30 shadow-sm`
                         : 'border-border hover:border-border/80 hover:bg-accent/40'
                     )}
                   >
-                    <Icon className={cn('h-4 w-4', form.category === c ? style.fg : 'text-muted-foreground')} />
-                    <span className={form.category === c ? style.fg : 'text-muted-foreground'}>{style.label}</span>
+                    <Icon className={cn('h-4 w-4 shrink-0', form.category === c ? style.fg : 'text-muted-foreground')} />
+                    <span className={cn('text-center leading-tight w-full', form.category === c ? style.fg : 'text-muted-foreground')}>{style.label}</span>
                   </button>
                 );
               })}

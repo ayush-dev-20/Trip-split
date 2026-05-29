@@ -755,17 +755,18 @@ export default function GroupDetailPage() {
       />
 
       {/* Tab bar */}
-      <div className="flex gap-1 p-1 bg-muted rounded-lg">
+      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
         {TABS.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setActiveTab(id)}
             className={cn(
-              'flex flex-1 items-center justify-center gap-1.5 py-1.5 rounded-md text-sm font-medium transition-colors',
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
               activeTab === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            <Icon className="h-3.5 w-3.5" />{label}
+            <Icon className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">{label}</span>
           </button>
         ))}
       </div>

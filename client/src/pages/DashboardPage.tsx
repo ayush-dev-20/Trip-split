@@ -5,12 +5,14 @@ import { useGroups } from '@/hooks/useGroups';
 import { useOverallBalances } from '@/hooks/useSettlements';
 import { useSyncTripStatuses } from '@/hooks/useTrips';
 import { useMyExpenses } from '@/hooks/useExpenses';
+import { usePersonalAnalytics } from '@/hooks/usePersonalExpenses';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import {
   Map, Users, DollarSign, TrendingUp, Plus, ArrowRight,
   Plane, Calendar, MapPin, BookOpen, ChevronLeft, ChevronRight,
-  UserPlus, Receipt, CheckCircle2, ArrowDownLeft, ArrowUpRight,
+  CheckCircle2, ArrowDownLeft, ArrowUpRight, Wallet,
+  Sparkles, BarChart2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -26,44 +28,64 @@ import { cn } from '@/lib/utils';
 
 const guideSteps = [
   {
-    icon: Plane,
-    color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600',
+    icon: Wallet,
+    color: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600',
     step: '01',
-    title: 'Create a Trip',
+    title: 'Track Personal Expenses',
     description:
-      'Kick things off by creating a trip — give it a name, set a destination, pick your travel dates, and optionally add a budget. You can do this with or without a group.',
-    tip: 'e.g. "Bali Adventure · 12–20 Mar" with a $2,000 budget',
-    action: { label: 'Create a Trip', href: '/trips/new' },
+      'Log your daily spending — food, transport, shopping, and more — from the Expenses tab. Use the Today view for a quick daily total, the Calendar to spot busy spending days, or History to scroll through all past transactions.',
+    tip: 'Tap + and type naturally: "Coffee ₹150" — AI parses it instantly. You can also scan a receipt with your camera.',
+    action: { label: 'My Expenses', href: '/expenses' },
   },
   {
-    icon: UserPlus,
+    icon: Users,
     color: 'bg-purple-100 dark:bg-purple-900/30 text-purple-600',
     step: '02',
-    title: 'Invite Your Crew',
+    title: 'Create a Group',
     description:
-      'Share the trip invite code or link with friends to add them as members. You can also create a Group to keep the same crew across multiple trips.',
-    tip: 'Groups are optional but handy for recurring travel buddies',
-    action: { label: 'Manage Groups', href: '/groups' },
+      'Groups are for recurring crews — flatmates, family, or a friend circle. Create one, share the invite code, and start logging shared expenses. Split costs equally, by percentage, exact amount, or proportional shares. Each group has its own analytics and AI chat.',
+    tip: 'The invite code lets anyone join in seconds — no email needed.',
+    action: { label: 'My Groups', href: '/groups' },
   },
   {
-    icon: Receipt,
-    color: 'bg-green-100 dark:bg-green-900/30 text-green-600',
+    icon: Plane,
+    color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-600',
     step: '03',
-    title: 'Log Expenses',
+    title: 'Plan & Track Trips',
     description:
-      'Add expenses as they happen — dinner, hotels, transport. Pick who paid and choose a split type: equal, percentage, exact amounts, or shares.',
-    tip: 'Pro users can scan receipts with AI for instant logging',
-    action: { label: 'View Trips', href: '/trips' },
+      'Create a trip with a name, destination, dates, and an optional budget. Invite members directly or link the trip to an existing Group. Log every expense on the go — hotels, meals, activities — and the app tracks what each person paid and owes in real time.',
+    tip: 'Linking a trip to a Group auto-imports all group members as trip members.',
+    action: { label: 'My Trips', href: '/trips' },
   },
   {
     icon: CheckCircle2,
-    color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600',
+    color: 'bg-green-100 dark:bg-green-900/30 text-green-600',
     step: '04',
     title: 'Settle Up',
     description:
-      'When the trip wraps up, TripSplit calculates who owes what with the fewest transfers possible. Mark payments as done and everyone is square!',
-    tip: 'Works with Venmo, PayPal, bank transfer, or just cash',
-    action: { label: 'View Trips', href: '/trips' },
+      'When the trip ends, the settlement engine calculates who owes who using the fewest possible transfers. Go to a trip → Settlements to see each balance. Mark transfers as paid once money moves — everyone stays square with no spreadsheet needed.',
+    tip: 'Works with any payment method — Venmo, UPI, bank transfer, or cash.',
+    action: { label: 'My Trips', href: '/trips' },
+  },
+  {
+    icon: BarChart2,
+    color: 'bg-orange-100 dark:bg-orange-900/30 text-orange-600',
+    step: '05',
+    title: 'Explore Analytics',
+    description:
+      'The Analytics page shows your personal spending broken down by category, trends over time, and month-over-month comparisons. Inside any Group or Trip you\'ll find the same insights scoped to that context — top spenders, category distribution, and daily averages.',
+    tip: 'Switch between Week / Month / Quarter / Year to zoom in or out on any period.',
+    action: { label: 'Analytics', href: '/analytics' },
+  },
+  {
+    icon: Sparkles,
+    color: 'bg-pink-100 dark:bg-pink-900/30 text-pink-600',
+    step: '06',
+    title: 'AI-Powered Tools',
+    description:
+      'Every major section has a built-in AI chat: ask "How much did I spend on food this month?" on the Expenses page, "Who paid the most?" inside a Group, or "How is this split?" on any trip expense. The AI Assistant also plans full trip itineraries and scans receipts to auto-fill expense forms.',
+    tip: 'AI features are available on Pro and Team plans.',
+    action: { label: 'AI Assistant', href: '/ai' },
   },
 ];
 
@@ -73,6 +95,7 @@ export default function DashboardPage() {
   const { data: groups, isLoading: groupsLoading } = useGroups();
   const { data: overallBalances } = useOverallBalances();
   const { data: myExpenses } = useMyExpenses();
+  const { data: personalMonthly } = usePersonalAnalytics('month');
   const syncStatuses = useSyncTripStatuses();
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
@@ -234,6 +257,42 @@ export default function DashboardPage() {
           </motion.div>
         ))}
       </div>
+
+      {/* Monthly Personal Expenses */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+        <Card>
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 shrink-0">
+                  <Wallet className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs text-muted-foreground">
+                    Daily Expenses — {new Date().toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  </p>
+                  <p className="text-xl font-bold tabular-nums mt-0.5">
+                    {personalMonthly
+                      ? formatMoney(personalMonthly.totalSpent, personalMonthly.currency || user?.preferredCurrency || 'USD')
+                      : '—'}
+                  </p>
+                  {personalMonthly && (
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {personalMonthly.transactionCount} transaction{personalMonthly.transactionCount !== 1 ? 's' : ''}
+                      {personalMonthly.topCategory ? ` · Top: ${personalMonthly.topCategory.charAt(0) + personalMonthly.topCategory.slice(1).toLowerCase()}` : ''}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <Button variant="outline" size="sm" asChild className="shrink-0">
+                <Link to="/expenses" className="flex items-center gap-1.5">
+                  <Wallet className="h-3.5 w-3.5" /> View
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      </motion.div>
 
       {/* Balance Summary — who I owe / who owes me */}
       {overallBalances && (overallBalances.iOwe.length > 0 || overallBalances.owedToMe.length > 0) && (
