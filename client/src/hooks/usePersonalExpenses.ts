@@ -1,11 +1,14 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { personalExpenseService } from '@/services/personalExpenseService';
 import type { CreatePersonalExpensePayload, PersonalAnalyticsPeriod } from '@/types';
+import { getNextDueDate } from '@/lib/recurring';
+import type { RecurringFrequency } from '@/types';
 
 export function usePersonalExpenses(params?: {
   startDate?: string;
   endDate?: string;
   category?: string;
+  search?: string;
   page?: number;
   limit?: number;
 }) {
@@ -32,6 +35,23 @@ export function usePersonalExpensesCalendar(year: number, month: number) {
   });
 }
 
+export function useRecurringExpenses() {
+  return useQuery({
+    queryKey: ['personal-expenses', 'recurring'],
+    queryFn: async () => {
+      const expenses = await personalExpenseService.getRecurring();
+      return expenses.map((e) => ({
+        ...e,
+        nextDueDate: getNextDueDate(
+          e.date,
+          (e.recurringPattern ?? 'monthly') as RecurringFrequency,
+        ),
+      }));
+    },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
 export function useCreatePersonalExpense() {
   const qc = useQueryClient();
   return useMutation({
@@ -52,6 +72,7 @@ export function useUpdatePersonalExpense(id: string) {
       qc.invalidateQueries({ queryKey: ['personal-expenses'] });
       qc.invalidateQueries({ queryKey: ['personal-expenses-calendar'] });
       qc.invalidateQueries({ queryKey: ['personal-analytics'] });
+      qc.invalidateQueries({ queryKey: ['personal-expenses', 'recurring'] });
     },
   });
 }
@@ -64,14 +85,20 @@ export function useDeletePersonalExpense() {
       qc.invalidateQueries({ queryKey: ['personal-expenses'] });
       qc.invalidateQueries({ queryKey: ['personal-expenses-calendar'] });
       qc.invalidateQueries({ queryKey: ['personal-analytics'] });
+      qc.invalidateQueries({ queryKey: ['personal-expenses', 'recurring'] });
     },
   });
 }
 
-export function usePersonalAnalytics(period: PersonalAnalyticsPeriod, referenceDate?: string) {
+export function usePersonalAnalytics(params: {
+  period?: PersonalAnalyticsPeriod;
+  referenceDate?: string;
+  startDate?: string;
+  endDate?: string;
+}) {
   return useQuery({
-    queryKey: ['personal-analytics', period, referenceDate],
-    queryFn: () => personalExpenseService.getAnalytics(period, referenceDate),
+    queryKey: ['personal-analytics', params],
+    queryFn: () => personalExpenseService.getAnalytics(params),
     staleTime: 2 * 60_000,
   });
 }

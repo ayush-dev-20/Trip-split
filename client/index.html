@@ -19,9 +19,84 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
     <title>TripSplit — Expense Tracker</title>
+
+    <!--
+      Applies the user's saved dark/light preference to <html> synchronously,
+      before the first paint. Mirrors the persisted-state read at the bottom
+      of src/stores/themeStore.ts — keep the two in sync if that logic changes.
+      Runs inline (not as a module) so it executes immediately, blocking, with
+      no network request and no dependency on the React bundle having loaded.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem('tripsplit-theme') || '{}');
+          var theme = (saved && saved.state && saved.state.theme) || 'system';
+          var isDark = theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) document.documentElement.classList.add('dark');
+        } catch (e) {
+          /* localStorage unavailable (e.g. private mode) — fall back to light */
+        }
+      })();
+    </script>
+
+    <!--
+      Self-contained initial-loader styles. Deliberately plain CSS, not Tailwind —
+      this has to render correctly the instant the HTML parses, before index.css
+      (imported via main.tsx) has necessarily loaded, so it can't depend on the
+      app's own stylesheet being ready.
+    -->
+    <style>
+      #initial-loader {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        background: #f9fafb;
+      }
+      html.dark #initial-loader {
+        background: #030712;
+      }
+      #initial-loader .spinner {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        border: 3px solid rgba(79, 142, 247, 0.25);
+        border-top-color: #4f8ef7;
+        animation: initial-loader-spin 0.7s linear infinite;
+      }
+      #initial-loader p {
+        margin: 0;
+        font-family: Inter, system-ui, -apple-system, sans-serif;
+        font-size: 13px;
+        color: #6b7280;
+      }
+      @keyframes initial-loader-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body class="bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 antialiased">
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        Shown from first paint until React mounts and calls
+        ReactDOM.createRoot(...).render(...) in src/main.tsx — that render call
+        replaces everything inside #root, including this block, automatically.
+        This is the fix for the blank-screen flash on PWA cold launch: previously
+        #root was empty here, so there was nothing to paint until the full JS
+        bundle (React, Clerk, TanStack Query, Socket.io, etc.) finished loading
+        and executing.
+      -->
+      <div id="initial-loader">
+        <div class="spinner"></div>
+        <p>Loading TripSplit…</p>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

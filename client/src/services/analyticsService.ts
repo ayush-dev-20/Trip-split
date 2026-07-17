@@ -2,8 +2,10 @@ import api from './api';
 import type { TripAnalytics, YearInReview, CategoryTrend, MyExpensesSummary } from '@/types';
 
 export const analyticsService = {
-  getTripAnalytics: (tripId: string) =>
-    api.get<{ success: boolean; data: TripAnalytics }>(`/analytics/trip/${tripId}`).then((r) => r.data.data),
+  getTripAnalytics: (tripId: string, dateRange?: { startDate?: string; endDate?: string }) =>
+    api
+      .get<{ success: boolean; data: TripAnalytics }>(`/analytics/trip/${tripId}`, { params: dateRange })
+      .then((r) => r.data.data),
 
   compareTrips: (tripIds: string[]) =>
     api.get<{ success: boolean; data: unknown }>('/analytics/compare', { params: { tripIds } }).then((r) => r.data.data),

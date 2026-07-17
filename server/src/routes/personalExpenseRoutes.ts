@@ -7,7 +7,8 @@ const router = Router();
 router.use(authenticate);
 
 // /calendar must be registered before /:id to avoid "calendar" being matched as an id
-router.get('/calendar', personalExpenses.getPersonalExpensesByDay);
+router.get('/calendar',  personalExpenses.getPersonalExpensesByDay);
+router.get('/recurring', personalExpenses.getRecurringExpenses);
 router.get('/',         personalExpenses.getPersonalExpenses);
 router.post('/',        validate({ body: createPersonalExpenseSchema }), personalExpenses.createPersonalExpense);
 router.get('/:id',      personalExpenses.getPersonalExpenseById);

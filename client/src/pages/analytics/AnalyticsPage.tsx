@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { format } from 'date-fns';
 import { useQuery } from '@tanstack/react-query';
 import { analyticsService } from '@/services/analyticsService';
 import { usePersonalAnalytics } from '@/hooks/usePersonalExpenses';
@@ -8,7 +9,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner';
 import {
   BarChart3, TrendingUp, MapPin, Wallet, Receipt,
   CalendarDays, ArrowUpRight, ArrowDownRight, CheckCircle2,
-  Clock, AlertTriangle, DollarSign, PieChart as PieChartIcon,
+  Clock, AlertTriangle, DollarSign, PieChart as PieChartIcon, X,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -18,6 +19,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -154,6 +157,18 @@ export default function AnalyticsPage() {
   const [selectedTrip, setSelectedTrip] = useState('');
   const trips = tripsData?.trips ?? [];
 
+  // Custom date range — Personal tab. Both fields must be filled for it to
+  // take priority over the week/month/quarter/year pills (server does the
+  // same "both required" check).
+  const [personalStartDate, setPersonalStartDate] = useState('');
+  const [personalEndDate, setPersonalEndDate]     = useState('');
+  const personalCustomActive = !!(personalStartDate && personalEndDate);
+
+  // Custom date range — Trip tab. Either field alone is fine here (an
+  // open-ended "from X onward" or "up to Y" range), matching the API.
+  const [tripStartDate, setTripStartDate] = useState('');
+  const [tripEndDate, setTripEndDate]     = useState('');
+
   // Auto-select most recent active trip
   useEffect(() => {
     if (trips.length > 0 && !selectedTrip) {
@@ -163,8 +178,11 @@ export default function AnalyticsPage() {
   }, [trips, selectedTrip]);
 
   const { data: analytics, isLoading: analyticsLoading } = useQuery({
-    queryKey: ['analytics', selectedTrip],
-    queryFn: () => analyticsService.getTripAnalytics(selectedTrip),
+    queryKey: ['analytics', selectedTrip, tripStartDate, tripEndDate],
+    queryFn: () => analyticsService.getTripAnalytics(selectedTrip, {
+      startDate: tripStartDate || undefined,
+      endDate: tripEndDate || undefined,
+    }),
     enabled: !!selectedTrip,
   });
 
@@ -173,7 +191,11 @@ export default function AnalyticsPage() {
     queryFn: () => analyticsService.yearInReview(),
   });
 
-  const { data: personalData, isLoading: personalLoading } = usePersonalAnalytics(personalPeriod);
+  const { data: personalData, isLoading: personalLoading } = usePersonalAnalytics(
+    personalCustomActive
+      ? { startDate: personalStartDate, endDate: personalEndDate }
+      : { period: personalPeriod }
+  );
 
   if (tripsLoading) return <PageLoader />;
 
@@ -231,22 +253,53 @@ export default function AnalyticsPage() {
       {/* ═══════════ PERSONAL TAB ═══════════ */}
       {activeTab === 'personal' && (
         <div className="space-y-6">
-          {/* Period selector */}
-          <div className="flex gap-2 flex-wrap">
-            {(['week', 'month', 'quarter', 'year'] as const).map((p) => (
-              <button
-                key={p}
-                onClick={() => setPersonalPeriod(p)}
-                className={cn(
-                  'px-4 py-1.5 rounded-full text-sm font-medium border transition-colors capitalize',
-                  personalPeriod === p
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
-                )}
-              >
-                {p}
-              </button>
-            ))}
+          {/* Period selector — disabled visually once a custom range is active */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+            <div className={cn('flex gap-2 flex-wrap', personalCustomActive && 'opacity-40 pointer-events-none')}>
+              {(['week', 'month', 'quarter', 'year'] as const).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPersonalPeriod(p)}
+                  className={cn(
+                    'px-4 py-1.5 rounded-full text-sm font-medium border transition-colors capitalize',
+                    personalPeriod === p
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+                  )}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={personalStartDate}
+                onChange={(e) => setPersonalStartDate(e.target.value)}
+                className="w-[150px] text-sm h-9"
+                aria-label="Custom range start date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <Input
+                type="date"
+                value={personalEndDate}
+                onChange={(e) => setPersonalEndDate(e.target.value)}
+                className="w-[150px] text-sm h-9"
+                aria-label="Custom range end date"
+              />
+              {personalCustomActive && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={() => { setPersonalStartDate(''); setPersonalEndDate(''); }}
+                  aria-label="Clear custom range"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </div>
 
           {personalLoading ? (
@@ -294,7 +347,11 @@ export default function AnalyticsPage() {
               </div>
 
               {/* Time series */}
-              <ChartCard title={`Spending — ${personalPeriod.charAt(0).toUpperCase() + personalPeriod.slice(1)}`}>
+              <ChartCard title={
+                personalData.period === 'custom'
+                  ? `Spending — ${format(new Date(personalData.dateRange.startDate), 'MMM d')} – ${format(new Date(personalData.dateRange.endDate), 'MMM d, yyyy')}`
+                  : `Spending — ${personalPeriod.charAt(0).toUpperCase() + personalPeriod.slice(1)}`
+              }>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={personalData.timeSeriesData} barSize={personalPeriod === 'month' ? 10 : 28}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
@@ -438,16 +495,46 @@ export default function AnalyticsPage() {
           <h2 className="text-lg font-semibold flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-primary" /> Trip Analytics
           </h2>
-          <Select value={selectedTrip} onValueChange={setSelectedTrip}>
-            <SelectTrigger className="w-full sm:w-[220px]">
-              <SelectValue placeholder="Select a trip" />
-            </SelectTrigger>
-            <SelectContent>
-              {trips.map((t) => (
-                <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Input
+                type="date"
+                value={tripStartDate}
+                onChange={(e) => setTripStartDate(e.target.value)}
+                className="w-[150px] text-sm h-9"
+                aria-label="Trip analytics range start date"
+              />
+              <span className="text-muted-foreground text-sm">to</span>
+              <Input
+                type="date"
+                value={tripEndDate}
+                onChange={(e) => setTripEndDate(e.target.value)}
+                className="w-[150px] text-sm h-9"
+                aria-label="Trip analytics range end date"
+              />
+              {(tripStartDate || tripEndDate) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 shrink-0"
+                  onClick={() => { setTripStartDate(''); setTripEndDate(''); }}
+                  aria-label="Clear date range"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
+            <Select value={selectedTrip} onValueChange={setSelectedTrip}>
+              <SelectTrigger className="w-full sm:w-[220px]">
+                <SelectValue placeholder="Select a trip" />
+              </SelectTrigger>
+              <SelectContent>
+                {trips.map((t) => (
+                  <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {analyticsLoading && selectedTrip && <PageLoader />}

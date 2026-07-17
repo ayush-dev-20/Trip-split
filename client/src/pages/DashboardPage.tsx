@@ -95,7 +95,7 @@ export default function DashboardPage() {
   const { data: groups, isLoading: groupsLoading } = useGroups();
   const { data: overallBalances } = useOverallBalances();
   const { data: myExpenses } = useMyExpenses();
-  const { data: personalMonthly } = usePersonalAnalytics('month');
+  const { data: personalMonthly } = usePersonalAnalytics({ period: 'month' });
   const syncStatuses = useSyncTripStatuses();
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
@@ -248,7 +248,7 @@ export default function DashboardPage() {
                     <stat.icon className="h-5 w-5" />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xl font-bold truncate">{stat.value}</p>
+                    <p className="text-lg sm:text-xl font-bold break-words leading-tight">{stat.value}</p>
                     <p className="text-xs text-muted-foreground">{stat.label}</p>
                   </div>
                 </div>

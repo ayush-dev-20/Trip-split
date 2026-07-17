@@ -10,6 +10,12 @@ import { calculateNetBalances, simplifyDebts } from '../services/settlementServi
 export const getTripAnalytics = asyncHandler(async (req: Request, res: Response) => {
   const tripId = req.params.tripId as string;
   const userId = req.user!.id as string;
+  const startDateParam = req.query.startDate as string | undefined;
+  const endDateParam   = req.query.endDate   as string | undefined;
+
+  if (startDateParam && endDateParam && new Date(startDateParam) > new Date(endDateParam)) {
+    throw AppError.badRequest('startDate must be before endDate');
+  }
 
   // Verify membership
   const isMember = await prisma.tripMember.findFirst({
@@ -22,14 +28,34 @@ export const getTripAnalytics = asyncHandler(async (req: Request, res: Response)
     include: { members: { include: { user: { select: { id: true, name: true } } } } },
   });
 
+  // Everything below is computed from `expenses` — filtering it here scopes
+  // every chart/stat to the requested range. Settlement progress (further
+  // down) intentionally stays unfiltered: "how much of the trip's debt is
+  // settled" is a running total, not something scoped to a date window.
   const expenses = await prisma.expense.findMany({
-    where: { tripId },
+    where: {
+      tripId,
+      ...(startDateParam || endDateParam
+        ? {
+            date: {
+              ...(startDateParam ? { gte: new Date(startDateParam) } : {}),
+              ...(endDateParam   ? { lte: new Date(endDateParam)   } : {}),
+            },
+          }
+        : {}),
+    },
     include: {
       paidBy: { select: { id: true, name: true } },
       splits: true,
     },
     orderBy: { date: 'asc' },
   });
+
+  // Velocity/"daily average" figures use the requested range when given,
+  // falling back to the trip's actual dates otherwise (unchanged behavior
+  // when no range is passed).
+  const rangeStart = startDateParam ? new Date(startDateParam) : trip.startDate;
+  const rangeEnd   = endDateParam   ? new Date(endDateParam)   : trip.endDate;
 
   // 1. Category breakdown (for pie chart) — as array with totals, counts, percentages
   const categoryMap: Record<string, { total: number; count: number }> = {};
@@ -131,11 +157,11 @@ export const getTripAnalytics = asyncHandler(async (req: Request, res: Response)
   // 6. Spending velocity (spending rate per day)
   const tripDays = Math.max(
     1,
-    Math.ceil((trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24))
+    Math.ceil((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24))
   );
   const avgDailySpend = totalSpent / tripDays;
   const daysElapsed = Math.max(1, Math.ceil(
-    (Math.min(Date.now(), trip.endDate.getTime()) - trip.startDate.getTime()) /
+    (Math.min(Date.now(), rangeEnd.getTime()) - rangeStart.getTime()) /
       (1000 * 60 * 60 * 24)
   ));
   const projectedTotal = Math.round((totalSpent / daysElapsed) * tripDays * 100) / 100;
@@ -228,6 +254,10 @@ export const getTripAnalytics = asyncHandler(async (req: Request, res: Response)
   res.json({
     success: true,
     data: {
+      dateRange: {
+        startDate: rangeStart.toISOString(),
+        endDate: rangeEnd.toISOString(),
+      },
       summary: {
         totalSpent: Math.round(totalSpent * 100) / 100,
         remainingBudget: trip.budget
@@ -507,9 +537,9 @@ export const categoryTrends = asyncHandler(async (req: Request, res: Response) =
 // PERSONAL ANALYTICS
 // ──────────────────────────────────────────────────────────────────────────────
 
-type Period = 'week' | 'month' | 'quarter' | 'year';
+type Period = 'week' | 'month' | 'quarter' | 'year' | 'custom';
 
-function getPeriodWindow(period: Period, ref: Date): { start: Date; end: Date } {
+function getPeriodWindow(period: Exclude<Period, 'custom'>, ref: Date): { start: Date; end: Date } {
   const d = new Date(ref);
   switch (period) {
     case 'week': {
@@ -579,6 +609,28 @@ function buildTimeSeries(period: Period, start: Date, end: Date, expenses: { dat
     });
   }
 
+  if (period === 'custom') {
+    // A custom range can be any length, so per-day is the one granularity
+    // that always makes sense (unlike week/month/quarter/year, which each
+    // have a natural fixed bucket size).
+    const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+    const endDay = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+    while (cursor <= endDay) {
+      totals[cursor.toISOString().split('T')[0]] = 0;
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    for (const e of expenses) {
+      const key = e.date.toISOString().split('T')[0];
+      if (totals[key] !== undefined) totals[key] += e.baseAmount;
+    }
+    return Object.entries(totals)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, amount]) => {
+        const d = new Date(date);
+        return { label: `${d.getDate()}/${d.getMonth() + 1}`, amount: Math.round(amount * 100) / 100 };
+      });
+  }
+
   if (period === 'month') {
     const daysInMonth = new Date(end.getFullYear(), end.getMonth() + 1, 0).getDate();
     for (let day = 1; day <= daysInMonth; day++) {
@@ -630,19 +682,42 @@ function buildTimeSeries(period: Period, start: Date, end: Date, expenses: { dat
 
 /**
  * GET /api/analytics/personal?period=week|month|quarter|year&referenceDate=ISO
+ * GET /api/analytics/personal?startDate=ISO&endDate=ISO   (custom range — takes priority over period)
  */
 export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Response) => {
   const userId = req.user!.id as string;
-  const period = (req.query.period as Period) || 'month';
-  const ref = req.query.referenceDate ? new Date(req.query.referenceDate as string) : new Date();
+  const startDateParam = req.query.startDate as string | undefined;
+  const endDateParam   = req.query.endDate   as string | undefined;
+  const useCustomRange = !!(startDateParam && endDateParam);
 
-  if (!['week', 'month', 'quarter', 'year'].includes(period)) {
-    throw AppError.badRequest('period must be week, month, quarter, or year');
+  let start: Date, end: Date, prevStart: Date, prevEnd: Date;
+  let period: Period;
+
+  if (useCustomRange) {
+    period = 'custom';
+    start = new Date(startDateParam!);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(endDateParam!);
+    end.setHours(23, 59, 59, 999);
+    if (start > end) throw AppError.badRequest('startDate must be before endDate');
+
+    // "Previous period" for a custom range = an equal-length window
+    // immediately before it, so the "vs Previous Period" comparison still
+    // means something instead of being tied to a fixed week/month/etc.
+    const rangeMs = end.getTime() - start.getTime();
+    prevEnd = new Date(start.getTime() - 1);
+    prevStart = new Date(prevEnd.getTime() - rangeMs);
+  } else {
+    const presetPeriod = (req.query.period as Exclude<Period, 'custom'>) || 'month';
+    if (!['week', 'month', 'quarter', 'year'].includes(presetPeriod)) {
+      throw AppError.badRequest('period must be week, month, quarter, or year');
+    }
+    period = presetPeriod;
+    const ref = req.query.referenceDate ? new Date(req.query.referenceDate as string) : new Date();
+    ({ start, end } = getPeriodWindow(presetPeriod, ref));
+    prevStart = getPeriodWindow(presetPeriod, shiftPeriodBack(presetPeriod, start)).start;
+    prevEnd   = new Date(start.getTime() - 1);
   }
-
-  const { start, end } = getPeriodWindow(period, ref);
-  const prevStart = getPeriodWindow(period, shiftPeriodBack(period, start)).start;
-  const prevEnd   = new Date(start.getTime() - 1);
 
   const [currentExpenses, previousExpenses, user] = await Promise.all([
     prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: start, lte: end } } }),
@@ -679,6 +754,7 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
     success: true,
     data: {
       period,
+      dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
       totalSpent: Math.round(totalSpent * 100) / 100,
       currency: user.preferredCurrency || 'USD',
       transactionCount: currentExpenses.length,
@@ -701,7 +777,7 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
 export const getGroupAnalytics = asyncHandler(async (req: Request, res: Response) => {
   const userId  = req.user!.id as string;
   const groupId = req.params.groupId as string;
-  const period  = (req.query.period as Period) || 'month';
+  const period  = (req.query.period as Exclude<Period, 'custom'>) || 'month';
   const ref = req.query.referenceDate ? new Date(req.query.referenceDate as string) : new Date();
 
   if (!['week', 'month', 'quarter', 'year'].includes(period)) {

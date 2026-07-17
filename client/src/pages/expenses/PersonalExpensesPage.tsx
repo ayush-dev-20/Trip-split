@@ -3,12 +3,13 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
-  History, Trash2, Loader2, Pencil, Sparkles,
+  History, Trash2, Loader2, Pencil, Sparkles, Search, X, RepeatIcon,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -25,12 +26,16 @@ import {
   usePersonalExpense,
   usePersonalExpensesCalendar,
   useDeletePersonalExpense,
+  useRecurringExpenses,
+  useCreatePersonalExpense,
 } from '@/hooks/usePersonalExpenses';
+import { isDueToday, getMonthlyEquivalent, FREQUENCY_LABELS } from '@/lib/recurring';
+import { useDebounce } from '@/hooks/useDebounce';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
 import { cn } from '@/lib/utils';
-import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay } from '@/types';
+import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay, RecurringFrequency } from '@/types';
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL_CATEGORIES = Object.keys(CATEGORY_STYLES) as ExpenseCategory[];
@@ -250,26 +255,50 @@ function PersonalExpenseDetailDialog({
 function TodayView({
   category,
   currency,
+  search,
   onExpenseClick,
+  showBanner,
+  onDismissBanner,
 }: {
   category: string;
   currency: string;
+  search: string;
   onExpenseClick: (id: string) => void;
+  showBanner: boolean;
+  onDismissBanner: () => void;
 }) {
-  // Memoised so the params object is stable across re-renders (prevents extra
-  // TanStack Query key hashing and avoids triggering observers unnecessarily).
-  const { startDate, endDate } = useMemo(() => {
+  // One query covers today AND the previous 7 days (the "Recent" list below),
+  // instead of two separate components each firing their own request. That
+  // used to mean every settled search fired 2 API calls at once — this way
+  // it's 1. Memoised so the params/keys are stable across re-renders.
+  const { startDate, endDate, todayKey } = useMemo(() => {
     const d = new Date();
+    const y = d.getFullYear(), m = d.getMonth(), day = d.getDate();
     return {
-      startDate: new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString(),
-      endDate:   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).toISOString(),
+      startDate: new Date(y, m, day - 7).toISOString(),
+      endDate:   new Date(y, m, day, 23, 59, 59, 999).toISOString(),
+      todayKey:  `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
     };
-  }, []); // computed once per mount — same calendar day for the lifetime of the component
+  }, []); // computed once per mount — same calendar window for the lifetime of the component
 
-  const { data, isLoading } = usePersonalExpenses({ startDate, endDate, category: category !== 'ALL' ? category : undefined, limit: 100 });
+  const { data, isLoading } = usePersonalExpenses({
+    startDate,
+    endDate,
+    category: category !== 'ALL' ? category : undefined,
+    search: search || undefined,
+    limit: 150,
+  });
   const deleteMutation = useDeletePersonalExpense();
 
-  const expenses = data?.expenses ?? [];
+  const allExpenses = data?.expenses ?? [];
+  const expenses = useMemo(
+    () => allExpenses.filter((e) => e.date.split('T')[0] === todayKey),
+    [allExpenses, todayKey],
+  );
+  const recentExpenses = useMemo(
+    () => allExpenses.filter((e) => e.date.split('T')[0] !== todayKey),
+    [allExpenses, todayKey],
+  );
   const totalToday = expenses.reduce((s, e) => s + e.baseAmount, 0);
 
   if (isLoading) {
@@ -282,6 +311,10 @@ function TodayView({
 
   return (
     <div className="space-y-4">
+      <AnimatePresence>
+        {showBanner && <DueTodayBanner onDismiss={onDismissBanner} />}
+      </AnimatePresence>
+
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 gap-3">
         <Card className="p-4">
@@ -297,12 +330,14 @@ function TodayView({
       {expenses.length === 0 ? (
         <EmptyState
           icon={<Wallet className="h-7 w-7" />}
-          title="No expenses today"
-          description="Tap + to log your first expense of the day."
+          title={search ? `No matches for "${search}"` : 'No expenses today'}
+          description={search ? 'Try a different title or note keyword.' : 'Tap + to log your first expense of the day.'}
           action={
-            <Button asChild>
-              <Link to="/expenses/new"><Plus className="h-4 w-4 mr-1" />Add Expense</Link>
-            </Button>
+            search ? undefined : (
+              <Button asChild>
+                <Link to="/expenses/new"><Plus className="h-4 w-4 mr-1" />Add Expense</Link>
+              </Button>
+            )
           }
         />
       ) : (
@@ -328,39 +363,25 @@ function TodayView({
         </Card>
       )}
 
-      <RecentList category={category} currency={currency} onExpenseClick={onExpenseClick} />
+      <RecentList expenses={recentExpenses} currency={currency} onExpenseClick={onExpenseClick} />
     </div>
   );
 }
 
 // ── Recent (last 7 days, Today view footer) ──────────────────────────────────
+// Purely presentational — TodayView fetches the data (one shared query for
+// both "today" and "recent") and passes the already-filtered slice down here.
 
 function RecentList({
-  category,
+  expenses,
   currency,
   onExpenseClick,
 }: {
-  category: string;
+  expenses: PersonalExpense[];
   currency: string;
   onExpenseClick: (id: string) => void;
 }) {
-  const { startDate, endDate } = useMemo(() => {
-    const d = new Date();
-    return {
-      startDate: new Date(d.getFullYear(), d.getMonth(), d.getDate() - 7).toISOString(),
-      endDate:   new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, -1).toISOString(),
-    };
-  }, []);
-
-  const { data } = usePersonalExpenses({
-    startDate,
-    endDate,
-    category: category !== 'ALL' ? category : undefined,
-    limit: 50,
-  });
   const deleteMutation = useDeletePersonalExpense();
-
-  const expenses = data?.expenses ?? [];
 
   // useMemo must be called before any early return (Rules of Hooks)
   const grouped = useMemo(() => {
@@ -409,10 +430,12 @@ function RecentList({
 function PastExpensesView({
   category,
   currency,
+  search,
   onExpenseClick,
 }: {
   category: string;
   currency: string;
+  search: string;
   onExpenseClick: (id: string) => void;
 }) {
   const LIMIT = 50;
@@ -427,6 +450,7 @@ function PastExpensesView({
   const { data, isLoading, isFetching } = usePersonalExpenses({
     endDate,
     category: category !== 'ALL' ? category : undefined,
+    search: search || undefined,
     page,
     limit: LIMIT,
   });
@@ -465,8 +489,8 @@ function PastExpensesView({
     return (
       <EmptyState
         icon={<History className="h-7 w-7" />}
-        title="No past expenses"
-        description="Your expense history will appear here."
+        title={search ? `No matches for "${search}"` : 'No past expenses'}
+        description={search ? 'Try a different title or note keyword.' : 'Your expense history will appear here.'}
       />
     );
   }
@@ -733,23 +757,230 @@ function CalendarView({
   );
 }
 
+// ── Due Today Banner ──────────────────────────────────────────────────────────
+
+function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
+  const { data: recurring = [] } = useRecurringExpenses();
+  const createMutation           = useCreatePersonalExpense();
+  const [logging, setLogging]    = useState(false);
+  const [logError, setLogError]  = useState(false);
+
+  const dueToday = useMemo(
+    () =>
+      recurring.filter((e) =>
+        isDueToday(e.date, (e.recurringPattern ?? 'monthly') as RecurringFrequency),
+      ),
+    [recurring],
+  );
+
+  if (dueToday.length === 0) return null;
+
+  const handleLogAll = async () => {
+    setLogging(true);
+    setLogError(false);
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      await Promise.all(
+        dueToday.map((e) =>
+          createMutation.mutateAsync({
+            title:       e.title,
+            amount:      e.amount,
+            currency:    e.currency,
+            category:    e.category,
+            date:        today,
+            description: e.description ?? undefined,
+            isRecurring: false,
+          }),
+        ),
+      );
+      onDismiss();
+    } catch {
+      setLogError(true);
+    } finally {
+      setLogging(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+    >
+      <Card className="border-primary/40 bg-primary/5">
+        <CardContent className="p-3 flex items-center gap-3">
+          <RepeatIcon className="h-4 w-4 text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold leading-tight">
+              {dueToday.length} recurring {dueToday.length === 1 ? 'expense' : 'expenses'} due today
+            </p>
+            <p className="text-xs text-muted-foreground truncate mt-0.5">
+              {dueToday.map((e) => `${e.title} (${formatMoney(e.amount, e.currency)})`).join(' · ')}
+            </p>
+          </div>
+          {logError ? (
+            <p className="text-xs text-destructive shrink-0">Some items failed — check History and log remaining manually.</p>
+          ) : (
+            <Button size="sm" className="shrink-0" onClick={handleLogAll} disabled={logging}>
+              {logging ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              Log all
+            </Button>
+          )}
+          <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={onDismiss} aria-label="Dismiss">
+            <X className="h-4 w-4" />
+          </Button>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+// ── Recurring Tab ─────────────────────────────────────────────────────────────
+
+function RecurringTab({
+  currency,
+  onExpenseClick,
+}: {
+  currency: string;
+  onExpenseClick: (id: string) => void;
+}) {
+  const { data: expenses = [], isLoading } = useRecurringExpenses();
+  const deleteMutation = useDeletePersonalExpense();
+
+  const { grouped, monthlyTotal } = useMemo(() => {
+    const order: RecurringFrequency[] = ['daily', 'weekly', 'monthly', 'yearly'];
+    const map: Record<string, typeof expenses> = {};
+    for (const e of expenses) {
+      const p = (e.recurringPattern ?? 'monthly') as RecurringFrequency;
+      if (!map[p]) map[p] = [];
+      map[p].push(e);
+    }
+    const grouped = order
+      .filter((p) => map[p]?.length > 0)
+      .map((p) => ({ pattern: p, items: map[p] }));
+    const monthlyTotal = expenses.reduce(
+      (sum, e) =>
+        sum + getMonthlyEquivalent(e.baseAmount, (e.recurringPattern ?? 'monthly') as RecurringFrequency),
+      0,
+    );
+    return { grouped, monthlyTotal };
+  }, [expenses]);
+
+  if (isLoading) {
+    return (
+      <div className="space-y-3">
+        {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 rounded-xl" />)}
+      </div>
+    );
+  }
+
+  if (expenses.length === 0) {
+    return (
+      <EmptyState
+        icon={<RepeatIcon className="h-7 w-7" />}
+        title="No recurring expenses"
+        description="Toggle 'Recurring expense' when adding an expense to track subscriptions and fixed costs here."
+        action={
+          <Button asChild>
+            <Link to="/expenses/new"><Plus className="h-4 w-4 mr-1" />Add Recurring</Link>
+          </Button>
+        }
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Monthly commitment summary */}
+      <Card className="p-4">
+        <p className="text-xs text-muted-foreground">Monthly Commitment</p>
+        <p className="text-2xl font-bold mt-1 tabular-nums">{formatMoney(monthlyTotal, currency)}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {expenses.length} recurring expense{expenses.length !== 1 ? 's' : ''}
+        </p>
+      </Card>
+
+      {/* Grouped by frequency */}
+      {grouped.map(({ pattern, items }) => (
+        <div key={pattern}>
+          <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-1 mb-2">
+            {FREQUENCY_LABELS[pattern]}
+          </p>
+          <Card>
+            <ul className="divide-y">
+              <AnimatePresence initial={false}>
+              {items.map((e) => {
+                const cat  = getCategoryStyle(e.category);
+                const Icon = cat.icon;
+                return (
+                  <motion.div
+                    key={e.id}
+                    layout
+                    initial={{ opacity: 0, y: 4 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -4 }}
+                    className="flex items-center gap-3 px-4 py-3 group hover:bg-accent/40 cursor-pointer transition-colors"
+                    onClick={() => onExpenseClick(e.id)}
+                  >
+                    <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', cat.bg)}>
+                      <Icon className={cn('h-5 w-5', cat.fg)} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{e.title}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Next: {format(e.nextDueDate, 'MMM d')}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <p className="text-sm font-semibold tabular-nums">
+                        {formatMoney(e.amount, e.currency)}
+                      </p>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity h-7 w-7"
+                        onClick={(ev) => { ev.stopPropagation(); deleteMutation.mutate(e.id); }}
+                        aria-label="Delete"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </motion.div>
+                );
+              })}
+              </AnimatePresence>
+            </ul>
+          </Card>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type View = 'today' | 'calendar' | 'past' | 'ai';
+type View = 'today' | 'calendar' | 'past' | 'recurring' | 'ai';
 
 export default function PersonalExpensesPage() {
-  const [view, setView]         = useState<View>('today');
-  const [category, setCategory] = useState('ALL');
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const [view, setView]               = useState<View>('today');
+  const [category, setCategory]       = useState('ALL');
+  const [detailId, setDetailId]       = useState<string | null>(null);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+
+  // Search box updates instantly; `search` (used in queries) only updates once
+  // the user pauses typing for 300ms, so we don't fire a request per keystroke.
+  const [searchInput, setSearchInput] = useState('');
+  const search = useDebounce(searchInput.trim(), 300);
 
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
   const deleteMutation    = useDeletePersonalExpense();
 
   const TABS: { id: View; label: string; icon: React.ElementType }[] = [
-    { id: 'today',    label: 'Today',    icon: List },
-    { id: 'calendar', label: 'Calendar', icon: CalendarDays },
-    { id: 'past',     label: 'History',  icon: History },
-    { id: 'ai',       label: 'AI',       icon: Sparkles },
+    { id: 'today',     label: 'Today',     icon: List },
+    { id: 'calendar',  label: 'Calendar',  icon: CalendarDays },
+    { id: 'past',      label: 'History',   icon: History },
+    { id: 'recurring', label: 'Recurring', icon: RepeatIcon },
+    { id: 'ai',        label: 'AI',        icon: Sparkles },
   ];
 
   return (
@@ -794,6 +1025,25 @@ export default function PersonalExpensesPage() {
         ))}
       </div>
 
+      {/* Search — only meaningful for Today and History, which fetch from the
+          server; Calendar groups by month and AI is a chat interface. */}
+      {(view === 'today' || view === 'past') && (
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search by title or notes…"
+            className="pl-9 pr-9"
+          />
+          {searchInput && (
+            <Button variant="ghost" size="icon" className="absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setSearchInput('')} aria-label="Clear search">
+              <X className="h-3.5 w-3.5" />
+            </Button>
+          )}
+        </div>
+      )}
+
       {/* Content */}
       <AnimatePresence mode="wait">
         <motion.div
@@ -807,7 +1057,10 @@ export default function PersonalExpensesPage() {
             <TodayView
               category={category}
               currency={preferredCurrency}
+              search={search}
               onExpenseClick={setDetailId}
+              showBanner={!bannerDismissed}
+              onDismissBanner={() => setBannerDismissed(true)}
             />
           )}
           {view === 'calendar' && (
@@ -818,10 +1071,17 @@ export default function PersonalExpensesPage() {
             />
           )}
           {view === 'past' && (
-            // key resets pagination + accumulated state when category filter changes
+            // key resets pagination + accumulated state when category or search filter changes
             <PastExpensesView
-              key={category}
+              key={`${category}-${search}`}
               category={category}
+              currency={preferredCurrency}
+              search={search}
+              onExpenseClick={setDetailId}
+            />
+          )}
+          {view === 'recurring' && (
+            <RecurringTab
               currency={preferredCurrency}
               onExpenseClick={setDetailId}
             />

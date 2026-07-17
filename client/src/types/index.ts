@@ -487,10 +487,13 @@ export interface PersonalExpenseCalendarDay {
   expenses: PersonalExpense[];
 }
 
-export type PersonalAnalyticsPeriod = 'week' | 'month' | 'quarter' | 'year';
+export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export type PersonalAnalyticsPeriod = 'week' | 'month' | 'quarter' | 'year' | 'custom';
 
 export interface PersonalAnalytics {
   period: PersonalAnalyticsPeriod;
+  dateRange: { startDate: string; endDate: string };
   totalSpent: number;
   currency: string;
   transactionCount: number;

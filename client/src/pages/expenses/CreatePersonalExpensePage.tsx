@@ -9,7 +9,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { Skeleton } from '@/components/ui/skeleton';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { CATEGORY_STYLES } from '@/lib/categoryStyle';
+import { FREQUENCY_LABELS } from '@/lib/recurring';
 import {
   useCreatePersonalExpense,
   useUpdatePersonalExpense,
@@ -18,7 +22,7 @@ import {
 import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
 import { cn } from '@/lib/utils';
-import type { ExpenseCategory } from '@/types';
+import type { ExpenseCategory, RecurringFrequency } from '@/types';
 
 const CATEGORIES: ExpenseCategory[] = [
   'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
@@ -35,7 +39,7 @@ interface Form {
   date: string;
   description: string;
   isRecurring: boolean;
-  recurringPattern: string;
+  recurringPattern: RecurringFrequency | '';
 }
 
 function todayDateValue() {
@@ -77,7 +81,7 @@ export default function CreatePersonalExpensePage() {
       date:             existingExpense.date.split('T')[0],
       description:      existingExpense.description ?? '',
       isRecurring:      existingExpense.isRecurring,
-      recurringPattern: existingExpense.recurringPattern ?? '',
+      recurringPattern: (existingExpense.recurringPattern as RecurringFrequency) ?? '',
     });
     setFormReady(true);
   }, [existingExpense]);
@@ -370,18 +374,30 @@ export default function CreatePersonalExpensePage() {
                 </div>
                 <Switch
                   checked={form.isRecurring}
-                  onCheckedChange={(v) => set('isRecurring', v)}
+                  onCheckedChange={(v) => {
+                    set('isRecurring', v);
+                    if (v && !form.recurringPattern) {
+                      set('recurringPattern', 'monthly');
+                    }
+                  }}
                 />
               </div>
               {form.isRecurring && (
                 <div className="space-y-1.5">
-                  <Label htmlFor="pattern" className="text-xs">Pattern (e.g. "daily", "weekly")</Label>
-                  <Input
-                    id="pattern"
-                    placeholder="daily / weekly / monthly"
+                  <Label className="text-xs">Frequency</Label>
+                  <Select
                     value={form.recurringPattern}
-                    onChange={(e) => set('recurringPattern', e.target.value)}
-                  />
+                    onValueChange={(v) => set('recurringPattern', v)}
+                  >
+                    <SelectTrigger className="h-9 text-sm">
+                      <SelectValue placeholder="Select frequency" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {(Object.keys(FREQUENCY_LABELS) as RecurringFrequency[]).map((f) => (
+                        <SelectItem key={f} value={f}>{FREQUENCY_LABELS[f]}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               )}
             </CardContent>

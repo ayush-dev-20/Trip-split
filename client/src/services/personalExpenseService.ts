@@ -12,6 +12,7 @@ export const personalExpenseService = {
     startDate?: string;
     endDate?: string;
     category?: string;
+    search?: string;
     page?: number;
     limit?: number;
   }) =>
@@ -46,10 +47,20 @@ export const personalExpenseService = {
 
   delete: (id: string) => api.delete(`/personal-expenses/${id}`),
 
-  getAnalytics: (period: PersonalAnalyticsPeriod, referenceDate?: string) =>
+  getRecurring: () =>
     api
-      .get<{ success: boolean; data: PersonalAnalytics }>('/analytics/personal', {
-        params: { period, ...(referenceDate && { referenceDate }) },
-      })
+      .get<{ success: boolean; data: PersonalExpense[] }>('/personal-expenses/recurring')
+      .then((r) => r.data.data ?? []),
+
+  // Pass either { period, referenceDate? } or { startDate, endDate } (custom
+  // range takes priority server-side if both happen to be present).
+  getAnalytics: (params: {
+    period?: PersonalAnalyticsPeriod;
+    referenceDate?: string;
+    startDate?: string;
+    endDate?: string;
+  }) =>
+    api
+      .get<{ success: boolean; data: PersonalAnalytics }>('/analytics/personal', { params })
       .then((r) => r.data.data),
 };

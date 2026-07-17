@@ -54,6 +54,7 @@ export const getPersonalExpenses = asyncHandler(async (req: Request, res: Respon
   const startDate = req.query.startDate as string | undefined;
   const endDate   = req.query.endDate   as string | undefined;
   const category  = req.query.category  as string | undefined;
+  const search    = req.query.search    as string | undefined;
   const page      = (req.query.page  as string) || '1';
   const limit     = (req.query.limit as string) || '50';
 
@@ -69,6 +70,12 @@ export const getPersonalExpenses = asyncHandler(async (req: Request, res: Respon
     };
   }
   if (category) where.category = category;
+  if (search) {
+    where.OR = [
+      { title: { contains: search, mode: 'insensitive' } },
+      { description: { contains: search, mode: 'insensitive' } },
+    ];
+  }
 
   const [expenses, total] = await Promise.all([
     prisma.expense.findMany({
@@ -217,4 +224,18 @@ export const deletePersonalExpense = asyncHandler(async (req: Request, res: Resp
   });
 
   res.json({ success: true, message: 'Expense deleted' });
+});
+
+/**
+ * GET /api/personal-expenses/recurring
+ */
+export const getRecurringExpenses = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id;
+
+  const expenses = await prisma.expense.findMany({
+    where: { paidById: userId, isRecurring: true, tripId: null },
+    orderBy: [{ recurringPattern: 'asc' }, { title: 'asc' }],
+  });
+
+  res.json({ success: true, data: expenses });
 });
