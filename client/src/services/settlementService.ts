@@ -29,4 +29,8 @@ export const settlementService = {
 
   settlePlan: (scope: { tripId?: string; groupId?: string }) =>
     api.post<{ success: boolean; data: Settlement[] }>('/settlements/settle-plan', scope).then((r) => r.data.data),
+
+  /** Cancels a PENDING settlement. Only the two involved parties can cancel; SETTLED/DISPUTED settlements cannot be deleted. */
+  delete: (settlementId: string) =>
+    api.delete<{ success: boolean; message: string }>(`/settlements/${settlementId}`).then((r) => r.data),
 };

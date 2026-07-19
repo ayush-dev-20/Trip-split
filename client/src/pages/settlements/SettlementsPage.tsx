@@ -1,5 +1,5 @@
 import { useParams } from 'react-router';
-import { useBalances, useSettlements, useSettleDebt, useCreateSettlement, useSettlePlan } from '@/hooks/useSettlements';
+import { useBalances, useSettlements, useSettleDebt, useCreateSettlement, useSettlePlan, useDeleteSettlement } from '@/hooks/useSettlements';
 import { useTrip } from '@/hooks/useTrips';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
@@ -8,7 +8,7 @@ import SectionHeading from '@/components/ui/SectionHeading';
 import EmptyState from '@/components/ui/EmptyState';
 import UserAvatar from '@/components/ui/UserAvatar';
 import StatCard from '@/components/ui/StatCard';
-import { ArrowRightLeft, CheckCircle, Clock, HandCoins, Loader2, Receipt, Sparkles } from 'lucide-react';
+import { ArrowRightLeft, CheckCircle, Clock, HandCoins, Loader2, Receipt, Sparkles, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,10 @@ import { Label } from '@/components/ui/label';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import UpiPayButton from '@/components/settlements/UpiPayButton';
@@ -32,6 +36,8 @@ export default function SettlementsPage() {
   const settle = useSettleDebt(tripId!);
   const createSettlement = useCreateSettlement(tripId!);
   const settlePlan = useSettlePlan({ tripId });
+  const deleteSettlement = useDeleteSettlement(tripId!);
+  const [deleteSettlementId, setDeleteSettlementId] = useState<string | null>(null);
 
   const [settleDialog, setSettleDialog] = useState<{
     open: boolean;
@@ -338,6 +344,18 @@ export default function SettlementsPage() {
                         Mark Settled
                       </Button>
                     )}
+                    {s.status === 'PENDING' &&
+                      (s.fromUser?.id === currentUser?.id || s.toUser?.id === currentUser?.id) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                        onClick={() => setDeleteSettlementId(s.id)}
+                        aria-label="Cancel settlement"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </li>
               ))}
@@ -492,6 +510,29 @@ export default function SettlementsPage() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteSettlementId} onOpenChange={(open) => !open && setDeleteSettlementId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel settlement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This pending settlement will be removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!deleteSettlementId) return;
+                deleteSettlement.mutate(deleteSettlementId, { onSuccess: () => setDeleteSettlementId(null) });
+              }}
+            >
+              Cancel Settlement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

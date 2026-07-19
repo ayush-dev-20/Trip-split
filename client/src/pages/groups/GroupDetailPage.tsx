@@ -726,6 +726,7 @@ export default function GroupDetailPage() {
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   if (isLoading || !group) return <PageLoader />;
 
@@ -738,12 +739,6 @@ export default function GroupDetailPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDelete = () => {
-    if (window.confirm('Delete this group? All associated data will be removed.')) {
-      deleteGroup.mutate(groupId!, { onSuccess: () => navigate('/groups') });
-    }
-  };
-
   return (
     <div className="space-y-5">
       <PageHeader
@@ -752,7 +747,7 @@ export default function GroupDetailPage() {
         back="/groups"
         actions={
           <Button
-            variant="ghost" size="icon" onClick={handleDelete} disabled={deleteGroup.isPending}
+            variant="ghost" size="icon" onClick={() => setConfirmDeleteOpen(true)} disabled={deleteGroup.isPending}
             className="text-destructive hover:text-destructive hover:bg-destructive/10"
             aria-label="Delete group"
           >
@@ -760,6 +755,26 @@ export default function GroupDetailPage() {
           </Button>
         }
       />
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete group?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{group.name}" and all associated data — trips, expenses, and members — will be permanently deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteGroup.mutate(groupId!, { onSuccess: () => navigate('/groups') })}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Tab bar */}
       <div className="overflow-x-auto">

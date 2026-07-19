@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import type { Components } from 'react-markdown';
+import { useQuery } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useTrip, useDeleteTrip, useUpdateTrip, useBudgetStatus } from '@/hooks/useTrips';
 import { useExpenses } from '@/hooks/useExpenses';
@@ -28,13 +29,19 @@ import {
   MapPin, Calendar, Plus, Receipt, ArrowLeft,
   MoreVertical, Trash2, Settings, Share2, ArrowRightLeft, Pencil, Download,
   Sparkles, CheckCircle2, Circle, MapPinned, X, NotebookPen, Loader2,
-  Wallet, Printer,
+  Wallet, Printer, BarChart3, DollarSign, ArrowUpRight, ArrowDownRight,
+  AlertTriangle, Clock, TrendingUp, CalendarDays,
 } from 'lucide-react';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart as RechartsPie, Pie, Cell, Line, Legend, Area, AreaChart,
+} from 'recharts';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +58,7 @@ import {
 import { analyticsService } from '@/services/analyticsService';
 import { getCategoryStyle } from '@/lib/categoryStyle';
 import { formatMoney, formatDate, formatRelativeDay } from '@/lib/format';
+import { StatCard, ChartCard, CustomTooltip, fmt, getCategoryColor, SPLIT_COLORS } from '@/lib/analyticsHelpers';
 import { cn } from '@/lib/utils';
 import type { SuggestedCheckpoint } from '@/types';
 import ReactMarkdown from 'react-markdown';
@@ -70,6 +78,393 @@ const mdComponents: Components = {
   hr: () => <hr className="border-border my-4" />,
 };
 
+// ── Analytics Tab ─────────────────────────────────────────────────────────────
+// Moved verbatim from AnalyticsPage.tsx's "Trip Analytics" section (Section B).
+// The trip-selector dropdown is dropped since we're already scoped to this
+// trip via the route — everything else (stats, charts, custom date range) is
+// unchanged.
+
+function TripAnalyticsTab({ tripId, fallbackCurrency }: { tripId: string; fallbackCurrency: string }) {
+  const [tripStartDate, setTripStartDate] = useState('');
+  const [tripEndDate, setTripEndDate]     = useState('');
+
+  const { data: analytics, isLoading: analyticsLoading } = useQuery({
+    queryKey: ['analytics', tripId, tripStartDate, tripEndDate],
+    queryFn: () => analyticsService.getTripAnalytics(tripId, {
+      startDate: tripStartDate || undefined,
+      endDate: tripEndDate || undefined,
+    }),
+    enabled: !!tripId,
+  });
+
+  const currency = analytics?.summary?.currency || fallbackCurrency;
+
+  const budgetRatio = analytics?.summary?.budget
+    ? analytics.summary.totalSpent / analytics.summary.budget
+    : 0;
+  const budgetColor = budgetRatio <= 0.6 ? 'text-green-500' : budgetRatio <= 0.85 ? 'text-amber-500' : 'text-red-500';
+  const budgetBarColor = budgetRatio <= 0.6 ? 'bg-green-500' : budgetRatio <= 0.85 ? 'bg-amber-500' : 'bg-red-500';
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <BarChart3 className="h-5 w-5 text-primary" /> Trip Analytics
+        </h2>
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={tripStartDate}
+            onChange={(e) => setTripStartDate(e.target.value)}
+            className="w-[150px] text-sm h-9"
+            aria-label="Trip analytics range start date"
+          />
+          <span className="text-muted-foreground text-sm">to</span>
+          <Input
+            type="date"
+            value={tripEndDate}
+            onChange={(e) => setTripEndDate(e.target.value)}
+            className="w-[150px] text-sm h-9"
+            aria-label="Trip analytics range end date"
+          />
+          {(tripStartDate || tripEndDate) && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => { setTripStartDate(''); setTripEndDate(''); }}
+              aria-label="Clear date range"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {analyticsLoading && <PageLoader />}
+
+      <AnimatePresence mode="wait">
+        {analytics && (
+          <motion.div
+            key={tripId}
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-5"
+          >
+            {/* B1: Trip Summary Stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
+              <StatCard icon={DollarSign} label="Total Spent" value={fmt(analytics.summary.totalSpent, currency)} />
+              <StatCard icon={Wallet} label="Budget" value={analytics.summary.budget ? fmt(analytics.summary.budget, currency) : 'No budget'} />
+              <StatCard
+                icon={analytics.summary.remainingBudget != null && analytics.summary.remainingBudget >= 0 ? ArrowUpRight : ArrowDownRight}
+                label="Remaining"
+                value={analytics.summary.remainingBudget != null ? fmt(analytics.summary.remainingBudget, currency) : '—'}
+                className={analytics.summary.remainingBudget != null && analytics.summary.remainingBudget < 0 ? 'border-red-500/30' : ''}
+              />
+              <StatCard icon={Receipt} label="Expenses" value={String(analytics.summary.totalTransactions)} />
+              <StatCard icon={CalendarDays} label="Daily Average" value={fmt(analytics.summary.avgDailySpend, currency)} />
+              <StatCard
+                icon={CheckCircle2}
+                label="Settled"
+                value={`${analytics.settlementProgress.percentage}%`}
+                sub={analytics.settlementProgress.outstanding > 0 ? `${fmt(analytics.settlementProgress.outstanding, currency)} still outstanding` : 'All settled up!'}
+              />
+            </div>
+
+            {/* B2: Budget Health Bar */}
+            {analytics.summary.budget != null && analytics.summary.budget > 0 && (
+              <Card>
+                <CardContent className="p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold">Budget Health</h3>
+                    <span className={cn('text-sm font-bold', budgetColor)}>
+                      {Math.round(budgetRatio * 100)}% used
+                    </span>
+                  </div>
+                  <div className="h-3 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={cn('h-full rounded-full transition-all duration-500', budgetBarColor)}
+                      style={{ width: `${Math.min(budgetRatio * 100, 100)}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between mt-2 text-xs text-muted-foreground">
+                    <span>{fmt(0, currency)}</span>
+                    <span>{fmt(analytics.summary.budget, currency)}</span>
+                  </div>
+                  {budgetRatio > 1 && (
+                    <p className="mt-2 text-xs text-red-500 flex items-center gap-1">
+                      <AlertTriangle className="h-3 w-3" />
+                      Over budget by {fmt(Math.abs(analytics.summary.remainingBudget ?? 0), currency)}
+                    </p>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="grid lg:grid-cols-2 gap-5">
+              {/* B3: Category Breakdown — Horizontal bar */}
+              {analytics.categoryBreakdown.length > 0 && (
+                <ChartCard title="Category Breakdown">
+                  <ResponsiveContainer width="100%" height={Math.max(180, analytics.categoryBreakdown.length * 36)}>
+                    <BarChart
+                      data={[...analytics.categoryBreakdown].sort((a, b) => b.total - a.total)}
+                      layout="vertical"
+                      barSize={16}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+                      <XAxis type="number" className="text-xs" tickLine={false} axisLine={false} />
+                      <YAxis dataKey="category" type="category" width={90} className="text-xs" tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip currency={currency} />} />
+                      <Bar dataKey="total" radius={[0, 4, 4, 0]} name="Spent">
+                        {[...analytics.categoryBreakdown]
+                          .sort((a, b) => b.total - a.total)
+                          .map((entry, idx) => (
+                            <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                          ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              )}
+
+              {/* B4: Daily Spending — Column chart */}
+              {analytics.dailySpending.length > 0 && (
+                <ChartCard title="Daily Spending">
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={analytics.dailySpending} barSize={analytics.dailySpending.length <= 7 ? 32 : 16}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                      <XAxis dataKey="date" className="text-xs" tickLine={false} axisLine={false} />
+                      <YAxis className="text-xs" tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip currency={currency} />} />
+                      <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Spent" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              )}
+            </div>
+
+            {/* B5: Budget vs Actual — Area chart */}
+            {analytics.budgetVsActual.length > 0 && (
+              <ChartCard title="Budget vs Actual (Cumulative)">
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={analytics.budgetVsActual}>
+                    <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+                    <XAxis dataKey="date" className="text-xs" tickLine={false} axisLine={false} />
+                    <YAxis className="text-xs" tickLine={false} axisLine={false} />
+                    <Tooltip content={<CustomTooltip currency={currency} />} />
+                    <Legend />
+                    <Area
+                      type="monotone"
+                      dataKey="cumulative"
+                      stroke="#3b82f6"
+                      fill="#3b82f6"
+                      fillOpacity={0.12}
+                      strokeWidth={2}
+                      name="Cumulative Spent"
+                    />
+                    {analytics.budgetVsActual[0]?.budget != null && (
+                      <Line
+                        type="monotone"
+                        dataKey="budget"
+                        stroke="#ef4444"
+                        strokeWidth={2}
+                        strokeDasharray="6 3"
+                        dot={false}
+                        name="Budget"
+                      />
+                    )}
+                  </AreaChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            )}
+
+            <div className="grid lg:grid-cols-2 gap-5">
+              {/* B6: Per Member — Grouped horizontal bar */}
+              {analytics.perUser.length > 0 && (
+                <ChartCard title="Per Member Contribution">
+                  <ResponsiveContainer width="100%" height={Math.max(180, analytics.perUser.length * 52)}>
+                    <BarChart data={analytics.perUser} layout="vertical" barSize={12} barGap={2}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" horizontal={false} />
+                      <XAxis type="number" className="text-xs" tickLine={false} axisLine={false} />
+                      <YAxis dataKey="name" type="category" width={80} className="text-xs" tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip currency={currency} />} />
+                      <Legend />
+                      <Bar dataKey="paid" fill="#10b981" radius={[0, 4, 4, 0]} name="Contributed" />
+                      <Bar dataKey="owes" fill="#6366f1" radius={[0, 4, 4, 0]} name="Fair Share" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                  <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-border">
+                    {analytics.perUser.map((u) => (
+                      <Badge key={u.userId} variant={u.net >= 0 ? 'default' : 'destructive'} className="text-xs">
+                        {u.name}: {u.net >= 0 ? '+' : ''}{fmt(u.net, currency)}
+                      </Badge>
+                    ))}
+                  </div>
+                </ChartCard>
+              )}
+
+              {/* B7: Spending by Day of Week — Column chart */}
+              {analytics.spendingByDayOfWeek && analytics.spendingByDayOfWeek.some((d) => d.amount > 0) && (
+                <ChartCard title="Spending by Day of Week">
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={analytics.spendingByDayOfWeek} barSize={28}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+                      <XAxis dataKey="day" className="text-xs" tickLine={false} axisLine={false} />
+                      <YAxis className="text-xs" tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip currency={currency} />} />
+                      <Bar dataKey="amount" fill="#8b5cf6" radius={[4, 4, 0, 0]} name="Spent" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
+              )}
+            </div>
+
+            <div className="grid lg:grid-cols-2 gap-5">
+              {/* B8: Top 5 Expenses — Table */}
+              {analytics.topExpenses.length > 0 && (
+                <ChartCard title="Top Expenses">
+                  <div className="space-y-2">
+                    {analytics.topExpenses.map((e, idx) => (
+                      <div key={idx} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-muted/50">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center">
+                            {idx + 1}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{e.title}</p>
+                            <p className="text-xs text-muted-foreground">{e.paidBy} · {e.category} · {e.date}</p>
+                          </div>
+                        </div>
+                        <span className="text-sm font-bold whitespace-nowrap">{fmt(e.amount, currency)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </ChartCard>
+              )}
+
+              <div className="space-y-5">
+                {/* B9: Split Type Distribution — Donut */}
+                {analytics.splitTypeDistribution.length > 0 && (
+                  <ChartCard title="Split Type Distribution">
+                    <ResponsiveContainer width="100%" height={220}>
+                      <RechartsPie>
+                        <Pie
+                          data={analytics.splitTypeDistribution}
+                          dataKey="count"
+                          nameKey="type"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={85}
+                          paddingAngle={3}
+                          label={({ type, count }) => `${type} (${count})`}
+                        >
+                          {analytics.splitTypeDistribution.map((entry) => (
+                            <Cell key={entry.type} fill={SPLIT_COLORS[entry.type] || '#64748b'} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                      </RechartsPie>
+                    </ResponsiveContainer>
+                  </ChartCard>
+                )}
+
+                {/* B10: Settlement Progress */}
+                <ChartCard title="Settlement Progress">
+                  <div className="flex items-center gap-5">
+                    <div className="relative h-20 w-20 flex-shrink-0">
+                      <svg className="h-20 w-20 -rotate-90" viewBox="0 0 36 36">
+                        <path
+                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          className="stroke-muted"
+                          strokeWidth="3"
+                        />
+                        <path
+                          d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                          fill="none"
+                          stroke="#10b981"
+                          strokeWidth="3"
+                          strokeDasharray={`${analytics.settlementProgress.percentage}, 100`}
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <span className="absolute inset-0 flex items-center justify-center text-sm font-bold">
+                        {analytics.settlementProgress.percentage}%
+                      </span>
+                    </div>
+                    <div className="space-y-2 flex-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Total Debt</span>
+                        <span className="font-medium">{fmt(analytics.settlementProgress.total, currency)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-green-500">
+                          <CheckCircle2 className="h-3.5 w-3.5" /> Settled
+                        </span>
+                        <span className="font-medium">{fmt(analytics.settlementProgress.settled, currency)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="flex items-center gap-1.5 text-amber-500">
+                          <Clock className="h-3.5 w-3.5" /> Outstanding
+                        </span>
+                        <span className="font-medium">{fmt(analytics.settlementProgress.outstanding, currency)}</span>
+                      </div>
+                      {analytics.settlementProgress.pending > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-1.5 text-blue-500">
+                            <Clock className="h-3.5 w-3.5" /> Pending Confirmation
+                          </span>
+                          <span className="font-medium">{fmt(analytics.settlementProgress.pending, currency)}</span>
+                        </div>
+                      )}
+                      {analytics.settlementProgress.disputed > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="flex items-center gap-1.5 text-red-500">
+                            <AlertTriangle className="h-3.5 w-3.5" /> Disputed
+                          </span>
+                          <span className="font-medium">{fmt(analytics.settlementProgress.disputed, currency)}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </ChartCard>
+              </div>
+            </div>
+
+            {/* Spending Velocity */}
+            {analytics.spendingVelocity && (
+              <Card className="bg-muted/30">
+                <CardContent className="p-5">
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <TrendingUp className="h-4 w-4 text-primary" /> Spending Velocity
+                  </h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-center">
+                    <div>
+                      <p className="text-xl font-bold">{fmt(analytics.spendingVelocity.dailyAverage, currency)}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Daily Average</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold">{fmt(analytics.spendingVelocity.projectedTotal, currency)}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Projected Total</p>
+                    </div>
+                    <div>
+                      <p className="text-xl font-bold">{analytics.spendingVelocity.daysElapsed}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">Days Elapsed</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 export default function TripDetailPage() {
   const { tripId } = useParams<{ tripId: string }>();
   const navigate = useNavigate();
@@ -87,6 +482,7 @@ export default function TripDetailPage() {
   const deleteCheckpoint = useDeleteCheckpoint(tripId!);
   const deleteAllCheckpoints = useDeleteAllCheckpoints(tripId!);
   const deleteDayCheckpoints = useDeleteDayCheckpoints(tripId!);
+  const [view, setView] = useState<'overview' | 'analytics'>('overview');
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteAllCheckpointsOpen, setDeleteAllCheckpointsOpen] = useState(false);
   const [deleteDayOpen, setDeleteDayOpen] = useState<number | null>(null);
@@ -98,6 +494,7 @@ export default function TripDetailPage() {
   const itineraryRef = useRef<HTMLDivElement>(null);
   const [cpFormOpen, setCpFormOpen] = useState<{ defaultDay: number | null; title: string } | null>(null);
   const [detailCp, setDetailCp] = useState<typeof checkpoints[0] | null>(null);
+  const [editingCp, setEditingCp] = useState<typeof checkpoints[0] | null>(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
   const [pendingCheckpointIds, setPendingCheckpointIds] = useState<Set<string>>(new Set());
 
@@ -114,6 +511,23 @@ export default function TripDetailPage() {
         day: values.day ? Number(values.day) : undefined,
       },
       { onSuccess: () => setCpFormOpen(null) }
+    );
+  };
+
+  const handleUpdateCheckpoint = (values: import('@/components/ui/CheckpointFormDialog').CheckpointFormValues) => {
+    if (!editingCp) return;
+    updateCheckpoint.mutate(
+      {
+        id: editingCp.id,
+        data: {
+          title: values.title.trim(),
+          description: values.description.trim() || undefined,
+          category: values.category || undefined,
+          estimatedCost: values.estimatedCost ? Number(values.estimatedCost) : undefined,
+          day: values.day ? Number(values.day) : undefined,
+        },
+      },
+      { onSuccess: () => setEditingCp(null) }
     );
   };
 
@@ -382,32 +796,59 @@ ${content}
         </div>
       </div>
 
-      {/* ── Quick action grid ────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-        {[
-          {
-            to: `/trips/${tripId}/expenses/new`,
-            icon: Plus,
-            label: 'Add Expense',
-            primary: true,
-            state: { suggestedPayerId: balances?.whoPaysNext?.user.id },
-          },
-          { to: `/trips/${tripId}/expenses`, icon: Receipt, label: 'Expenses' },
-          { to: `/trips/${tripId}/settlements`, icon: ArrowRightLeft, label: 'Settle Up' },
-          { to: `/trips/${tripId}/notes`, icon: NotebookPen, label: 'Notes' },
-        ].map(({ to, icon: Icon, label, primary, state }) => (
-          <Button
-            key={to}
-            asChild
-            variant={primary ? 'default' : 'outline'}
-            className={cn('h-auto py-3 flex-col gap-1.5', primary && 'shadow-sm')}
-          >
-            <Link to={to} state={state}>
-              <Icon className="h-5 w-5" />
-              <span className="text-xs font-medium">{label}</span>
+      {/* ── Overview / Analytics tabs ─────────────────────────── */}
+      <div className="overflow-x-auto -mx-4 px-4">
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          {([
+            { id: 'overview' as const, label: 'Overview', icon: MapPinned },
+            { id: 'analytics' as const, label: 'Analytics', icon: BarChart3 },
+          ]).map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
+                view === id
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" /> {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {view === 'analytics' && (
+        <TripAnalyticsTab tripId={tripId!} fallbackCurrency={trip.budgetCurrency} />
+      )}
+
+      {view === 'overview' && (
+      <>
+      {/* ── Quick actions ─────────────────────────────────────── */}
+      <div className="overflow-x-auto -mx-4 px-4">
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          {[
+            {
+              to: `/trips/${tripId}/expenses/new`,
+              icon: Plus,
+              label: 'Add Expense',
+              state: { suggestedPayerId: balances?.whoPaysNext?.user.id },
+            },
+            { to: `/trips/${tripId}/expenses`, icon: Receipt, label: 'Expenses' },
+            { to: `/trips/${tripId}/settlements`, icon: ArrowRightLeft, label: 'Settle Up' },
+            { to: `/trips/${tripId}/notes`, icon: NotebookPen, label: 'Notes' },
+          ].map(({ to, icon: Icon, label, state }) => (
+            <Link
+              key={to}
+              to={to}
+              state={state}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap text-muted-foreground hover:text-foreground hover:bg-background/60"
+            >
+              <Icon className="h-3.5 w-3.5" /> {label}
             </Link>
-          </Button>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* ── Budget burn rate ──────────────────────────────────── */}
@@ -913,20 +1354,34 @@ ${content}
                 {detailCp && pendingCheckpointIds.has(detailCp.id) && <Loader2 className="h-4 w-4 animate-spin" />}
                 {detailCp?.isVisited ? 'Mark Not Visited' : 'Mark Visited'}
               </Button>
-              <Button
-                variant="destructive"
-                size="sm"
-                disabled={deleteCheckpoint.isPending}
-                onClick={() => {
-                  if (!detailCp) return;
-                  deleteCheckpoint.mutate(detailCp.id, { onSuccess: () => setDetailCp(null) });
-                }}
-              >
-                {deleteCheckpoint.isPending
-                  ? <Loader2 className="h-4 w-4 animate-spin" />
-                  : <Trash2 className="h-4 w-4" />}
-                Delete
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (!detailCp) return;
+                    setEditingCp(detailCp);
+                    setDetailCp(null);
+                  }}
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteCheckpoint.isPending}
+                  onClick={() => {
+                    if (!detailCp) return;
+                    deleteCheckpoint.mutate(detailCp.id, { onSuccess: () => setDetailCp(null) });
+                  }}
+                >
+                  {deleteCheckpoint.isPending
+                    ? <Loader2 className="h-4 w-4 animate-spin" />
+                    : <Trash2 className="h-4 w-4" />}
+                  Delete
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>
@@ -941,6 +1396,23 @@ ${content}
         title={cpFormOpen?.title ?? 'Add Checkpoint'}
         loading={createCheckpoint.isPending}
         onSubmit={handleCreateCheckpoint}
+      />
+
+      {/* ── Edit checkpoint form ─────────────────────────────── */}
+      <CheckpointFormDialog
+        open={editingCp !== null}
+        onOpenChange={(open) => { if (!open) setEditingCp(null); }}
+        availableDays={availableDays}
+        title="Edit Checkpoint"
+        initialValues={editingCp ? {
+          title: editingCp.title,
+          description: editingCp.description ?? '',
+          category: editingCp.category ?? '',
+          estimatedCost: editingCp.estimatedCost != null ? String(editingCp.estimatedCost) : '',
+          day: editingCp.day != null ? String(editingCp.day) : '',
+        } : null}
+        loading={updateCheckpoint.isPending}
+        onSubmit={handleUpdateCheckpoint}
       />
 
       <ConfirmationDialog
@@ -972,6 +1444,8 @@ ${content}
         loading={deleteTrip.isPending}
         onConfirm={() => deleteTrip.mutate(tripId!, { onSuccess: () => navigate('/trips') })}
       />
+      </>
+      )}
     </div>
   );
 }

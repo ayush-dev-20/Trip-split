@@ -13,6 +13,7 @@ router.get('/balances/:tripId', settlements.getTripBalances);
 router.post('/', validate({ body: createSettlementSchema }), settlements.createSettlement);
 router.post('/settle-plan', validate({ body: settlePlanSchema }), settlements.settlePlan);
 router.put('/:id/settle', validate({ params: idParamSchema, body: settleDebtSchema }), settlements.settleDebt);
+router.delete('/:id', validate({ params: idParamSchema }), settlements.deleteSettlement);
 router.get('/', settlements.getSettlements);
 
 export default router;

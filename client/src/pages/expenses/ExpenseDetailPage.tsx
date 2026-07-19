@@ -10,6 +10,10 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { getCategoryStyle } from '@/lib/categoryStyle';
 import AIChatPanel from '@/components/ui/AIChatPanel';
 import { aiService } from '@/services/aiService';
@@ -33,17 +37,12 @@ export default function ExpenseDetailPage() {
   const addComment = useAddComment(tripId!, expenseId!);
   const addReaction = useAddReaction(tripId!, expenseId!);
   const [comment, setComment] = useState('');
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   if (isLoading || !expense) return <PageLoader />;
 
   const cat = getCategoryStyle(expense.category);
   const Icon = cat.icon;
-
-  const handleDelete = () => {
-    if (window.confirm('Delete this expense?')) {
-      deleteExpense.mutate(expenseId!, { onSuccess: () => navigate(`/trips/${tripId}/expenses`) });
-    }
-  };
 
   const handleComment = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,7 +60,7 @@ export default function ExpenseDetailPage() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={handleDelete}
+            onClick={() => setConfirmDeleteOpen(true)}
             disabled={deleteExpense.isPending}
             className="text-destructive hover:text-destructive hover:bg-destructive/10"
             aria-label="Delete expense"
@@ -70,6 +69,26 @@ export default function ExpenseDetailPage() {
           </Button>
         }
       />
+
+      <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{expense.title}" will be permanently deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => deleteExpense.mutate(expenseId!, { onSuccess: () => navigate(`/trips/${tripId}/expenses`) })}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Hero amount card */}
       <Card>

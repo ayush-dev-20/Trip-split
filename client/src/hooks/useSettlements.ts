@@ -98,3 +98,25 @@ export function useSettlePlan(scope: { tripId?: string; groupId?: string }) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['settlements'] }),
   });
 }
+
+export function useDeleteSettlement(tripId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (settlementId: string) => settlementService.delete(settlementId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settlements', tripId] });
+      qc.invalidateQueries({ queryKey: ['settlements', tripId, 'balances'] });
+    },
+  });
+}
+
+export function useDeleteGroupSettlement(groupId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (settlementId: string) => settlementService.delete(settlementId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['settlements', 'group', groupId] });
+      qc.invalidateQueries({ queryKey: ['settlements', 'group', groupId, 'balances'] });
+    },
+  });
+}

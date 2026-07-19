@@ -4,8 +4,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
   History, Trash2, Loader2, Pencil, Sparkles, Search, X, RepeatIcon, TrendingUp, Download,
+  BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart as RechartsPie, Pie, Cell,
+} from 'recharts';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -33,6 +38,7 @@ import {
   useRecurringExpenses,
   useCreatePersonalExpense,
   usePersonalBudgetStatus,
+  usePersonalAnalytics,
 } from '@/hooks/usePersonalExpenses';
 import { isDueToday, getMonthlyEquivalent, FREQUENCY_LABELS } from '@/lib/recurring';
 import { useDebounce } from '@/hooks/useDebounce';
@@ -41,8 +47,9 @@ import { useAnomalyStore, type AnomalyAlert } from '@/stores/anomalyStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
+import { StatCard, ChartCard, CustomTooltip, fmt, fmtTick, getCategoryColor } from '@/lib/analyticsHelpers';
 import { cn } from '@/lib/utils';
-import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay, RecurringFrequency } from '@/types';
+import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay, RecurringFrequency, PersonalAnalyticsPeriod } from '@/types';
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL_CATEGORIES = Object.keys(CATEGORY_STYLES) as ExpenseCategory[];
@@ -514,29 +521,6 @@ function PastExpensesView({
 
   return (
     <div className="space-y-4">
-      <div className="flex justify-end">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Download className="h-3.5 w-3.5 mr-1.5" />
-              Export
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem
-              onClick={() => personalExpenseService.exportCSV({ category: category !== 'ALL' ? category : undefined })}
-            >
-              Export as CSV
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => personalExpenseService.exportPDF({ category: category !== 'ALL' ? category : undefined })}
-            >
-              Export as PDF
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
       {grouped.map(([day, items]) => (
         <div key={day}>
           <div className="flex items-center justify-between mb-1 px-1">
@@ -1024,9 +1008,197 @@ function RecurringTab({
   );
 }
 
+// ── Analytics Tab ─────────────────────────────────────────────────────────────
+// Moved verbatim from AnalyticsPage.tsx's "personal" tab — same components,
+// same behavior, same UI. Manages its own period/custom-range state, separate
+// from the rest of the page's `category` filter.
+
+function PersonalAnalyticsTab() {
+  const [personalPeriod, setPersonalPeriod] = useState<PersonalAnalyticsPeriod>('month');
+
+  // Custom date range. Both fields must be filled for it to take priority
+  // over the week/month/quarter/year pills (server does the same "both required" check).
+  const [personalStartDate, setPersonalStartDate] = useState('');
+  const [personalEndDate, setPersonalEndDate]     = useState('');
+  const personalCustomActive = !!(personalStartDate && personalEndDate);
+
+  const { data: personalData, isLoading: personalLoading } = usePersonalAnalytics(
+    personalCustomActive
+      ? { startDate: personalStartDate, endDate: personalEndDate }
+      : { period: personalPeriod }
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Period selector — disabled visually once a custom range is active */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-wrap">
+        <div className={cn('flex gap-2 flex-wrap', personalCustomActive && 'opacity-40 pointer-events-none')}>
+          {(['week', 'month', 'quarter', 'year'] as const).map((p) => (
+            <button
+              key={p}
+              onClick={() => setPersonalPeriod(p)}
+              className={cn(
+                'px-4 py-1.5 rounded-full text-sm font-medium border transition-colors capitalize',
+                personalPeriod === p
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'border-border text-muted-foreground hover:text-foreground hover:border-foreground/30'
+              )}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            value={personalStartDate}
+            onChange={(e) => setPersonalStartDate(e.target.value)}
+            className="w-[150px] text-sm h-9"
+            aria-label="Custom range start date"
+          />
+          <span className="text-muted-foreground text-sm">to</span>
+          <Input
+            type="date"
+            value={personalEndDate}
+            onChange={(e) => setPersonalEndDate(e.target.value)}
+            className="w-[150px] text-sm h-9"
+            aria-label="Custom range end date"
+          />
+          {personalCustomActive && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0"
+              onClick={() => { setPersonalStartDate(''); setPersonalEndDate(''); }}
+              aria-label="Clear custom range"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {personalLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i} className="animate-pulse h-24" />
+          ))}
+        </div>
+      ) : personalData ? (
+        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+
+          {/* Summary stat cards */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <StatCard
+              icon={DollarSign}
+              label="Total Spent"
+              value={fmt(personalData.totalSpent, personalData.currency)}
+              sub={`${personalData.transactionCount} transaction${personalData.transactionCount !== 1 ? 's' : ''}`}
+            />
+            <StatCard
+              icon={CalendarDays}
+              label="Daily Average"
+              value={fmt(personalData.avgPerDay, personalData.currency)}
+            />
+            <StatCard
+              icon={PieChartIcon}
+              label="Top Category"
+              value={personalData.topCategory.charAt(0) + personalData.topCategory.slice(1).toLowerCase()}
+            />
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground mb-1">vs Previous Period</p>
+              <p className={cn('text-xl font-bold tabular-nums flex items-center gap-1',
+                personalData.comparisonToPrev.direction === 'up' ? 'text-red-500'
+                : personalData.comparisonToPrev.direction === 'down' ? 'text-green-500'
+                : 'text-muted-foreground'
+              )}>
+                {personalData.comparisonToPrev.direction === 'up' && <ArrowUpRight className="h-4 w-4" />}
+                {personalData.comparisonToPrev.direction === 'down' && <ArrowDownRight className="h-4 w-4" />}
+                {Math.abs(personalData.comparisonToPrev.changePercent)}%
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                prev: {fmt(personalData.comparisonToPrev.previousTotal, personalData.currency)}
+              </p>
+            </Card>
+          </div>
+
+          {/* Time series */}
+          <ChartCard title={
+            personalData.period === 'custom'
+              ? `Spending — ${format(new Date(personalData.dateRange.startDate), 'MMM d')} – ${format(new Date(personalData.dateRange.endDate), 'MMM d, yyyy')}`
+              : `Spending — ${personalPeriod.charAt(0).toUpperCase() + personalPeriod.slice(1)}`
+          }>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={personalData.timeSeriesData} barSize={personalPeriod === 'month' ? 10 : 28}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, personalData.currency)} />
+                <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
+                <Bar dataKey="amount" name="Spent" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartCard>
+
+          {/* Category breakdown */}
+          {personalData.categoryBreakdown.length > 0 && (
+            <div className="grid sm:grid-cols-2 gap-4">
+              <ChartCard title="By Category">
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={personalData.categoryBreakdown} layout="vertical" barSize={14}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, personalData.currency)} />
+                    <YAxis type="category" dataKey="category" tick={{ fontSize: 10 }} width={90}
+                      tickFormatter={(v) => v.charAt(0) + v.slice(1).toLowerCase()} />
+                    <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
+                    <Bar dataKey="total" name="Amount" radius={[0, 4, 4, 0]}>
+                      {personalData.categoryBreakdown.map((entry, idx) => (
+                        <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+
+              <ChartCard title="Category Split">
+                <ResponsiveContainer width="100%" height={220}>
+                  <RechartsPie>
+                    <Pie
+                      data={personalData.categoryBreakdown}
+                      dataKey="total"
+                      nameKey="category"
+                      cx="50%"
+                      cy="50%"
+                      outerRadius={80}
+                      label={({ category, percentage }) =>
+                        `${category.charAt(0) + category.slice(1).toLowerCase()} ${percentage}%`
+                      }
+                      labelLine={false}
+                    >
+                      {personalData.categoryBreakdown.map((entry, idx) => (
+                        <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(v: number) => fmt(v, personalData.currency)} />
+                  </RechartsPie>
+                </ResponsiveContainer>
+              </ChartCard>
+            </div>
+          )}
+        </motion.div>
+      ) : (
+        <div className="py-16 text-center text-muted-foreground">
+          <Wallet className="h-10 w-10 mx-auto mb-3 opacity-40" />
+          <p>No personal expenses found for this period.</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type View = 'today' | 'calendar' | 'past' | 'recurring' | 'ai';
+type View = 'today' | 'calendar' | 'past' | 'analytics' | 'recurring' | 'ai';
 
 export default function PersonalExpensesPage() {
   const [view, setView]               = useState<View>('today');
@@ -1046,6 +1218,7 @@ export default function PersonalExpensesPage() {
     { id: 'today',     label: 'Today',     icon: List },
     { id: 'calendar',  label: 'Calendar',  icon: CalendarDays },
     { id: 'past',      label: 'History',   icon: History },
+    { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'recurring', label: 'Recurring', icon: RepeatIcon },
     { id: 'ai',        label: 'AI',        icon: Sparkles },
   ];
@@ -1097,18 +1270,43 @@ export default function PersonalExpensesPage() {
       {/* Search — only meaningful for Today and History, which fetch from the
           server; Calendar groups by month and AI is a chat interface. */}
       {(view === 'today' || view === 'past') && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Search by title or notes…"
-            className="pl-9 pr-9"
-          />
-          {searchInput && (
-            <Button variant="ghost" size="icon" className="absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setSearchInput('')} aria-label="Clear search">
-              <X className="h-3.5 w-3.5" />
-            </Button>
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              placeholder="Search by title or notes…"
+              className="pl-9 pr-9"
+            />
+            {searchInput && (
+              <Button variant="ghost" size="icon" className="absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 text-muted-foreground hover:text-foreground" onClick={() => setSearchInput('')} aria-label="Clear search">
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+
+          {view === 'past' && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" className="shrink-0 px-2.5 sm:px-3">
+                  <Download className="h-3.5 w-3.5 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Export</span>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={() => personalExpenseService.exportCSV({ category: category !== 'ALL' ? category : undefined })}
+                >
+                  Export as CSV
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => personalExpenseService.exportPDF({ category: category !== 'ALL' ? category : undefined })}
+                >
+                  Export as PDF
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           )}
         </div>
       )}
@@ -1149,6 +1347,7 @@ export default function PersonalExpensesPage() {
               onExpenseClick={setDetailId}
             />
           )}
+          {view === 'analytics' && <PersonalAnalyticsTab />}
           {view === 'recurring' && (
             <RecurringTab
               currency={preferredCurrency}

@@ -29,12 +29,14 @@ export interface CheckpointFormValues {
 interface CheckpointFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Pre-fill a specific day (e.g. when clicking "+ to Day 2") */
+  /** Pre-fill a specific day (e.g. when clicking "+ to Day 2") — ignored if initialValues is set */
   defaultDay?: number | null;
   /** All day numbers that already exist for this trip */
   availableDays?: number[];
   /** Label shown in the header e.g. "Add to Day 3" */
   title?: string;
+  /** When set, the dialog pre-fills from these values and behaves as an edit form */
+  initialValues?: CheckpointFormValues | null;
   loading?: boolean;
   onSubmit: (values: CheckpointFormValues) => void;
 }
@@ -63,17 +65,19 @@ export default function CheckpointFormDialog({
   defaultDay,
   availableDays = [],
   title = 'Add Checkpoint',
+  initialValues = null,
   loading = false,
   onSubmit,
 }: CheckpointFormDialogProps) {
+  const isEdit = initialValues != null;
   const [form, setForm] = useState<CheckpointFormValues>(EMPTY);
 
   // Reset + pre-fill whenever dialog opens
   useEffect(() => {
     if (open) {
-      setForm({ ...EMPTY, day: defaultDay != null ? String(defaultDay) : '' });
+      setForm(initialValues ?? { ...EMPTY, day: defaultDay != null ? String(defaultDay) : '' });
     }
-  }, [open, defaultDay]);
+  }, [open, defaultDay, initialValues]);
 
   const set = (field: keyof CheckpointFormValues) => (val: string) =>
     setForm((prev) => ({ ...prev, [field]: val }));
@@ -184,7 +188,7 @@ export default function CheckpointFormDialog({
               Cancel
             </Button>
             <Button type="submit" disabled={!form.title.trim() || loading}>
-              {loading ? 'Adding…' : 'Add Checkpoint'}
+              {loading ? (isEdit ? 'Saving…' : 'Adding…') : (isEdit ? 'Save Changes' : 'Add Checkpoint')}
             </Button>
           </DialogFooter>
         </form>

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   useGroupBalances, useSettlePlan, useGroupSettlements, useCreateGroupSettlement, useSettleGroupDebt,
+  useDeleteGroupSettlement,
 } from '@/hooks/useSettlements';
 import { useAuthStore } from '@/stores/authStore';
 import WhoPaysNextCard from '@/components/settlements/WhoPaysNextCard';
@@ -15,7 +16,11 @@ import { Badge } from '@/components/ui/badge';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
-import { ArrowRightLeft, Clock, HandCoins, Loader2, Sparkles } from 'lucide-react';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { ArrowRightLeft, Clock, HandCoins, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { formatMoney } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import UpiPayButton from '@/components/settlements/UpiPayButton';
@@ -27,6 +32,8 @@ export default function GroupBalancesSection({ groupId, groupName }: { groupId: 
   const settlePlan = useSettlePlan({ groupId });
   const createSettlement = useCreateGroupSettlement(groupId);
   const settleDebt = useSettleGroupDebt(groupId);
+  const deleteSettlement = useDeleteGroupSettlement(groupId);
+  const [deleteSettlementId, setDeleteSettlementId] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [settleDialog, setSettleDialog] = useState<{
     from: { id: string; name: string };
@@ -188,6 +195,17 @@ export default function GroupBalancesSection({ groupId, groupName }: { groupId: 
                     {settleDebt.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     Mark Settled
                   </Button>
+                  {(s.fromUser?.id === currentUser?.id || s.toUser?.id === currentUser?.id) && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-destructive shrink-0"
+                      onClick={() => setDeleteSettlementId(s.id)}
+                      aria-label="Cancel settlement"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -264,6 +282,29 @@ export default function GroupBalancesSection({ groupId, groupName }: { groupId: 
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={!!deleteSettlementId} onOpenChange={(open) => !open && setDeleteSettlementId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel settlement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This pending settlement will be removed. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!deleteSettlementId) return;
+                deleteSettlement.mutate(deleteSettlementId, { onSuccess: () => setDeleteSettlementId(null) });
+              }}
+            >
+              Cancel Settlement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

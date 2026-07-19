@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useParams, useNavigate, useLocation, Link } from 'react-router';
-import { useCreateExpense } from '@/hooks/useExpenses';
+import { useCreateExpense, useUpdateExpense, useExpense } from '@/hooks/useExpenses';
 import { useTrip } from '@/hooks/useTrips';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
@@ -39,13 +39,17 @@ const CATEGORIES: ExpenseCategory[] = [
 ];
 
 export default function CreateExpensePage() {
-  const { tripId } = useParams<{ tripId: string }>();
+  const { tripId, id: editId } = useParams<{ tripId: string; id?: string }>();
+  const isEditMode = !!editId;
   const navigate = useNavigate();
   const location = useLocation();
   const suggestedPayerId = (location.state as { suggestedPayerId?: string } | null)?.suggestedPayerId;
   const currentUser = useAuthStore((s) => s.user);
   const { data: trip, isLoading: tripLoading } = useTrip(tripId!);
   const createExpense = useCreateExpense(tripId!);
+  const updateExpense = useUpdateExpense(tripId!);
+  const { data: existingExpense, isLoading: loadingExpense } = useExpense(tripId!, editId ?? '');
+  const isPending = isEditMode ? updateExpense.isPending : createExpense.isPending;
 
   const [form, setForm] = useState({
     title: '',
@@ -60,6 +64,7 @@ export default function CreateExpensePage() {
 
   // Per-member split details: { [userId]: value }
   const [splitValues, setSplitValues] = useState<Record<string, string>>({});
+  const [formReady, setFormReady] = useState(!isEditMode); // in create mode, form is ready immediately
 
   const [nlpInput, setNlpInput] = useState('');
   const [nlpLoading, setNlpLoading] = useState(false);
@@ -74,13 +79,37 @@ export default function CreateExpensePage() {
   const tier = currentUser?.tier ?? 'FREE';
   const isPro = tier !== 'FREE';
 
-  if (tripLoading || !trip) return <PageLoader />;
+  // Pre-fill form + split values once the existing expense loads (edit mode only)
+  useEffect(() => {
+    if (!existingExpense) return;
+    setForm({
+      title:       existingExpense.title,
+      amount:      existingExpense.amount.toString(),
+      currency:    existingExpense.currency,
+      category:    existingExpense.category,
+      description: existingExpense.description ?? '',
+      date:        existingExpense.date.split('T')[0],
+      splitType:   existingExpense.splitType,
+      paidById:    existingExpense.paidById,
+    });
+    const values: Record<string, string> = {};
+    for (const s of existingExpense.splits ?? []) {
+      if (existingExpense.splitType === 'PERCENTAGE') values[s.userId] = (s.percentage ?? 0).toString();
+      else if (existingExpense.splitType === 'EXACT')  values[s.userId] = s.amount.toString();
+      else if (existingExpense.splitType === 'SHARES') values[s.userId] = (s.shares ?? 1).toString();
+    }
+    setSplitValues(values);
+    setFormReady(true);
+  }, [existingExpense]);
 
-  if (!form.currency && trip.budgetCurrency) {
+  if (tripLoading || !trip) return <PageLoader />;
+  if (isEditMode && (loadingExpense || !formReady)) return <PageLoader />;
+
+  if (!isEditMode && !form.currency && trip.budgetCurrency) {
     setForm((prev) => ({ ...prev, currency: trip.budgetCurrency }));
   }
 
-  if (!form.paidById && (suggestedPayerId || currentUser?.id)) {
+  if (!isEditMode && !form.paidById && (suggestedPayerId || currentUser?.id)) {
     setForm((prev) => ({ ...prev, paidById: suggestedPayerId ?? currentUser!.id }));
   }
 
@@ -251,22 +280,29 @@ export default function CreateExpensePage() {
         };
       });
 
-      createExpense.mutate(
-        {
-          title: form.title,
-          amount,
-          currency: form.currency || trip.budgetCurrency,
-          category: form.category,
-          description: form.description || undefined,
-          date: new Date(form.date).toISOString(),
-          splitType: 'EXACT',
-          splits,
-          items: itemizedResult.items,
-          tripId: tripId!,
-          paidById: payerId,
-        },
-        { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
-      );
+      const payload = {
+        title: form.title,
+        amount,
+        currency: form.currency || trip.budgetCurrency,
+        category: form.category,
+        description: form.description || undefined,
+        date: new Date(form.date).toISOString(),
+        splitType: 'EXACT' as SplitType,
+        splits,
+        items: itemizedResult.items,
+      };
+
+      if (isEditMode) {
+        updateExpense.mutate(
+          { expenseId: editId!, ...payload },
+          { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+        );
+      } else {
+        createExpense.mutate(
+          { ...payload, tripId: tripId!, paidById: payerId },
+          { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+        );
+      }
       return;
     }
 
@@ -291,21 +327,28 @@ export default function CreateExpensePage() {
       }));
     }
 
-    createExpense.mutate(
-      {
-        title: form.title,
-        amount,
-        currency: form.currency || trip.budgetCurrency,
-        category: form.category,
-        description: form.description || undefined,
-        date: new Date(form.date).toISOString(),
-        splitType: form.splitType,
-        splits,
-        tripId: tripId!,
-        paidById: payerId,
-      },
-      { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
-    );
+    const payload = {
+      title: form.title,
+      amount,
+      currency: form.currency || trip.budgetCurrency,
+      category: form.category,
+      description: form.description || undefined,
+      date: new Date(form.date).toISOString(),
+      splitType: form.splitType,
+      splits,
+    };
+
+    if (isEditMode) {
+      updateExpense.mutate(
+        { expenseId: editId!, ...payload },
+        { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+      );
+    } else {
+      createExpense.mutate(
+        { ...payload, tripId: tripId!, paidById: payerId },
+        { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+      );
+    }
   };
 
   const update = (field: string, value: string) => setForm((prev) => ({ ...prev, [field]: value }));
@@ -320,12 +363,13 @@ export default function CreateExpensePage() {
   return (
     <div className="max-w-2xl mx-auto space-y-5">
       <PageHeader
-        title="Add Expense"
+        title={isEditMode ? 'Edit Expense' : 'Add Expense'}
         description={trip.name}
         back={`/trips/${tripId}/expenses`}
       />
 
-      {/* AI Quick Entry */}
+      {/* AI Quick Entry — creation-only; not a good fit for editing an existing entry */}
+      {!isEditMode && (
       <Card className="bg-gradient-to-br from-primary/5 to-info/5 border-primary/10">
         <CardContent className="p-4 space-y-3">
           <div className="flex items-center gap-2">
@@ -408,6 +452,7 @@ export default function CreateExpensePage() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       {itemizedReceipt && itemizedReceipt.reconciled === true && (
         <Alert>
@@ -418,9 +463,11 @@ export default function CreateExpensePage() {
         </Alert>
       )}
 
-      {createExpense.isError && (
+      {(isEditMode ? updateExpense.isError : createExpense.isError) && (
         <Alert variant="destructive">
-          <AlertDescription>{(createExpense.error as Error)?.message || 'Failed to create expense'}</AlertDescription>
+          <AlertDescription>
+            {((isEditMode ? updateExpense.error : createExpense.error) as Error)?.message || 'Failed to save expense'}
+          </AlertDescription>
         </Alert>
       )}
 
@@ -511,7 +558,7 @@ export default function CreateExpensePage() {
             {/* Paid By */}
             <div className="space-y-2">
               <Label>Paid by <span className="text-destructive">*</span></Label>
-              <Select value={form.paidById} onValueChange={(v) => update('paidById', v)}>
+              <Select value={form.paidById} onValueChange={(v) => update('paidById', v)} disabled={isEditMode}>
                 <SelectTrigger className="h-10">
                   <SelectValue placeholder="Who paid?" />
                 </SelectTrigger>
@@ -529,6 +576,9 @@ export default function CreateExpensePage() {
                   ))}
                 </SelectContent>
               </Select>
+              {isEditMode && (
+                <p className="text-xs text-muted-foreground">Who paid can't be changed after the expense is created.</p>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -788,9 +838,9 @@ export default function CreateExpensePage() {
           <Button variant="outline" asChild className="flex-1">
             <Link to={`/trips/${tripId}/expenses`}>Cancel</Link>
           </Button>
-          <Button type="submit" disabled={createExpense.isPending || !form.title.trim() || !form.amount} className="flex-1">
-            {createExpense.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {createExpense.isPending ? 'Adding…' : 'Add Expense'}
+          <Button type="submit" disabled={isPending || !form.title.trim() || !form.amount} className="flex-1">
+            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isPending ? (isEditMode ? 'Saving…' : 'Adding…') : (isEditMode ? 'Save Changes' : 'Add Expense')}
           </Button>
         </div>
       </form>

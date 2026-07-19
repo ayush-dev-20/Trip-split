@@ -468,3 +468,39 @@ export const settlePlan = asyncHandler(async (req: Request, res: Response) => {
   const created = await recordSettlementPlan({ tripId, groupId });
   res.status(201).json({ success: true, data: created });
 });
+
+/**
+ * DELETE /api/settlements/:id
+ * Cancel a settlement request. Only PENDING settlements can be deleted —
+ * once a settlement is SETTLED it's a historical record of money that
+ * actually changed hands, and DISPUTED settlements need to be resolved
+ * (settled or re-created), not silently removed. Only the two parties
+ * involved in the settlement may cancel it.
+ */
+export const deleteSettlement = asyncHandler(async (req: Request, res: Response) => {
+  const settlementId = req.params.id as string;
+  const userId = req.user!.id as string;
+
+  const settlement = await prisma.settlement.findUnique({ where: { id: settlementId } });
+  if (!settlement) throw AppError.notFound('Settlement not found');
+
+  if (settlement.fromUserId !== userId && settlement.toUserId !== userId) {
+    throw AppError.forbidden('Only the parties involved can cancel this settlement');
+  }
+
+  if (settlement.status !== 'PENDING') {
+    throw AppError.badRequest('Only pending settlements can be cancelled');
+  }
+
+  await prisma.settlement.delete({ where: { id: settlementId } });
+
+  await logAudit({
+    action: 'DELETE',
+    entityType: 'settlement',
+    entityId: settlementId,
+    userId,
+    before: { status: settlement.status, amount: settlement.amount },
+  });
+
+  res.json({ success: true, message: 'Settlement cancelled' });
+});

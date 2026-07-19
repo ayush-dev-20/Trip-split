@@ -1,10 +1,10 @@
 import { useParams, Link } from 'react-router';
-import { useExpenses } from '@/hooks/useExpenses';
+import { useExpenses, useDeleteExpense } from '@/hooks/useExpenses';
 import { useTrip } from '@/hooks/useTrips';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
 import PageHeader from '@/components/ui/PageHeader';
-import { Receipt, Plus, Search } from 'lucide-react';
+import { Receipt, Plus, Search, Pencil, Trash2 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import type { ExpenseCategory } from '@/types';
 import { motion } from 'framer-motion';
@@ -14,6 +14,10 @@ import { Input } from '@/components/ui/input';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -29,6 +33,8 @@ export default function ExpensesPage() {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<ExpenseCategory | ''>('');
   const { data, isLoading } = useExpenses(tripId!, category ? { category } : undefined);
+  const deleteExpense = useDeleteExpense(tripId!);
+  const [deleteExpenseId, setDeleteExpenseId] = useState<string | null>(null);
 
   const filtered = useMemo(() => (data?.expenses ?? []).filter((e) =>
     e.title.toLowerCase().includes(search.toLowerCase())
@@ -159,10 +165,11 @@ export default function ExpensesPage() {
                         initial={{ opacity: 0, y: 6 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: Math.min(i * 0.02, 0.2) }}
+                        className="flex items-center gap-3 sm:gap-4 px-4 py-3 hover:bg-accent/50 transition-colors group"
                       >
                         <Link
                           to={`/trips/${tripId}/expenses/${expense.id}`}
-                          className="flex items-center gap-3 sm:gap-4 px-4 py-3 hover:bg-accent/50 transition-colors"
+                          className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0"
                         >
                           <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', cat.bg)}>
                             <Icon className={cn('h-5 w-5', cat.fg)} />
@@ -184,6 +191,22 @@ export default function ExpensesPage() {
                             )}
                           </div>
                         </Link>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <Link
+                            to={`/trips/${tripId}/expenses/${expense.id}/edit`}
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-foreground transition-opacity p-1"
+                            aria-label="Edit"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Link>
+                          <button
+                            onClick={() => setDeleteExpenseId(expense.id)}
+                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity p-1"
+                            aria-label="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       </motion.li>
                     );
                   })}
@@ -204,6 +227,29 @@ export default function ExpensesPage() {
           <Plus className="h-6 w-6" />
         </Link>
       </Button>
+
+      <AlertDialog open={!!deleteExpenseId} onOpenChange={(open) => !open && setDeleteExpenseId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete expense?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This expense will be permanently deleted. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                if (!deleteExpenseId) return;
+                deleteExpense.mutate(deleteExpenseId, { onSuccess: () => setDeleteExpenseId(null) });
+              }}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
