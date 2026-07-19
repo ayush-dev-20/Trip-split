@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router';
+import { useParams, useNavigate, useLocation, Link } from 'react-router';
 import { useCreateExpense } from '@/hooks/useExpenses';
 import { useTrip } from '@/hooks/useTrips';
 import { useAuthStore } from '@/stores/authStore';
@@ -7,9 +7,9 @@ import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
 import UserAvatar from '@/components/ui/UserAvatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2 } from 'lucide-react';
+import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, Receipt, Lock, X } from 'lucide-react';
 import { aiService } from '@/services/aiService';
-import type { ExpenseCategory, SplitType } from '@/types';
+import type { ExpenseCategory, SplitType, ItemizedReceipt, ExpenseItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -18,6 +18,11 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Badge } from '@/components/ui/badge';
+import ItemizedSplitEditor from '@/components/expenses/ItemizedSplitEditor';
 import { CATEGORY_STYLES } from '@/lib/categoryStyle';
 import { cn } from '@/lib/utils';
 
@@ -29,13 +34,15 @@ const SPLIT_TYPES: { value: SplitType; label: string; hint: string }[] = [
 ];
 
 const CATEGORIES: ExpenseCategory[] = [
-  'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
+  'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
   'HEALTH', 'COMMUNICATION', 'ENTERTAINMENT', 'FEES', 'MISCELLANEOUS',
 ];
 
 export default function CreateExpensePage() {
   const { tripId } = useParams<{ tripId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
+  const suggestedPayerId = (location.state as { suggestedPayerId?: string } | null)?.suggestedPayerId;
   const currentUser = useAuthStore((s) => s.user);
   const { data: trip, isLoading: tripLoading } = useTrip(tripId!);
   const createExpense = useCreateExpense(tripId!);
@@ -59,17 +66,33 @@ export default function CreateExpensePage() {
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
+  // Itemized receipt splitting (PRO feature)
+  const [itemizedReceipt, setItemizedReceipt] = useState<ItemizedReceipt | null>(null);
+  const [itemizedResult, setItemizedResult] = useState<{ perUser: { userId: string; owedAmount: number }[]; items: ExpenseItem[] } | null>(null);
+  const [itemizeLoading, setItemizeLoading] = useState(false);
+  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  const tier = currentUser?.tier ?? 'FREE';
+  const isPro = tier !== 'FREE';
+
   if (tripLoading || !trip) return <PageLoader />;
 
   if (!form.currency && trip.budgetCurrency) {
     setForm((prev) => ({ ...prev, currency: trip.budgetCurrency }));
   }
 
-  if (!form.paidById && currentUser?.id) {
-    setForm((prev) => ({ ...prev, paidById: currentUser.id }));
+  if (!form.paidById && (suggestedPayerId || currentUser?.id)) {
+    setForm((prev) => ({ ...prev, paidById: suggestedPayerId ?? currentUser!.id }));
   }
 
   const members = trip.members ?? [];
+
+  // Stable reference for ItemizedSplitEditor — an inline `.map()` in JSX would
+  // create a new array every render, which (combined with the totals useMemo
+  // inside the editor) caused an infinite onChange -> setState -> render loop.
+  const itemizedMembers = useMemo(
+    () => members.map((m) => ({ id: m.userId, name: m.user?.name ?? '' })),
+    [members]
+  );
 
   // ---------- Split helpers ----------
   const totalAmount = Number(form.amount) || 0;
@@ -139,7 +162,9 @@ export default function CreateExpensePage() {
   };
 
   const handleNLP = async () => {
-    if (!nlpInput.trim()) return;
+    // Amount/currency are locked to the scanned itemized receipt while it's active —
+    // don't let AI quick entry silently overwrite them (see handleReceiptScan).
+    if (!nlpInput.trim() || itemizedReceipt) return;
     setNlpLoading(true);
     try {
       const result = await aiService.parseNaturalLanguage(nlpInput);
@@ -159,6 +184,10 @@ export default function CreateExpensePage() {
   };
 
   const handleReceiptScan = async (file: File) => {
+    // Amount/currency are locked to the scanned itemized receipt while it's active —
+    // a plain (non-itemized) rescan must not silently overwrite them and desync
+    // itemizedResult.perUser from form.amount.
+    if (itemizedReceipt) return;
     try {
       const result = await aiService.scanReceipt(file);
       setForm((prev) => ({
@@ -175,8 +204,71 @@ export default function CreateExpensePage() {
     }
   };
 
+  const handleItemizedScan = async (file: File) => {
+    if (!isPro) {
+      setShowUpgradeDialog(true);
+      return;
+    }
+    setItemizeLoading(true);
+    try {
+      const receipt = await aiService.scanReceiptItems(file);
+      setItemizedReceipt(receipt);
+      setForm((prev) => ({
+        ...prev,
+        title: receipt.vendor || prev.title,
+        amount: receipt.total?.toString() || prev.amount,
+        currency: receipt.currency || prev.currency,
+        category: (receipt.category as ExpenseCategory) || prev.category,
+        date: receipt.date || prev.date,
+        splitType: 'EXACT',
+      }));
+    } catch (err) {
+      const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
+      if (code === 'UPGRADE_REQUIRED') {
+        setShowUpgradeDialog(true);
+      }
+      // Otherwise silently fail—user can still fill manually
+    } finally {
+      setItemizeLoading(false);
+    }
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    const payerId = form.paidById || currentUser!.id;
+    const amount = Number(form.amount);
+
+    // Itemized save: payer's contribution = full amount, others 0;
+    // owedAmount per person comes from the editor's proportional split.
+    if (itemizedReceipt && itemizedResult) {
+      const splits = members.map((m) => {
+        const owed = itemizedResult.perUser.find((p) => p.userId === m.userId)?.owedAmount ?? 0;
+        return {
+          userId: m.userId,
+          amount: m.userId === payerId ? amount : 0,
+          owedAmount: owed,
+        };
+      });
+
+      createExpense.mutate(
+        {
+          title: form.title,
+          amount,
+          currency: form.currency || trip.budgetCurrency,
+          category: form.category,
+          description: form.description || undefined,
+          date: new Date(form.date).toISOString(),
+          splitType: 'EXACT',
+          splits,
+          items: itemizedResult.items,
+          tripId: tripId!,
+          paidById: payerId,
+        },
+        { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+      );
+      return;
+    }
 
     // Build splits based on split type
     let splits;
@@ -202,7 +294,7 @@ export default function CreateExpensePage() {
     createExpense.mutate(
       {
         title: form.title,
-        amount: Number(form.amount),
+        amount,
         currency: form.currency || trip.budgetCurrency,
         category: form.category,
         description: form.description || undefined,
@@ -210,13 +302,20 @@ export default function CreateExpensePage() {
         splitType: form.splitType,
         splits,
         tripId: tripId!,
-        paidById: form.paidById || currentUser!.id,
+        paidById: payerId,
       },
       { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
     );
   };
 
   const update = (field: string, value: string) => setForm((prev) => ({ ...prev, [field]: value }));
+
+  // Clears the itemized receipt split and restores manual split-type selection.
+  const handleClearItemized = () => {
+    setItemizedReceipt(null);
+    setItemizedResult(null);
+    handleSplitTypeChange('EQUAL');
+  };
 
   return (
     <div className="max-w-2xl mx-auto space-y-5">
@@ -243,14 +342,17 @@ export default function CreateExpensePage() {
                 placeholder={isListening ? 'Listening… speak now' : 'e.g. "Lunch $45 split equally"'}
                 className="pr-10 h-10 bg-background"
                 onKeyDown={(e) => e.key === 'Enter' && handleNLP()}
+                disabled={!!itemizedReceipt}
               />
               {('SpeechRecognition' in window || 'webkitSpeechRecognition' in window) && (
                 <button
                   type="button"
                   onClick={toggleVoice}
+                  disabled={!!itemizedReceipt}
                   className={cn(
                     'absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md transition-colors',
-                    isListening ? 'text-destructive animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                    isListening ? 'text-destructive animate-pulse' : 'text-muted-foreground hover:text-foreground hover:bg-accent',
+                    itemizedReceipt && 'opacity-40 pointer-events-none'
                   )}
                   title={isListening ? 'Stop recording' : 'Speak your expense'}
                 >
@@ -258,19 +360,63 @@ export default function CreateExpensePage() {
                 </button>
               )}
             </div>
-            <Button variant="secondary" onClick={handleNLP} disabled={nlpLoading || !nlpInput.trim()} className="shrink-0 h-10">
+            <Button variant="secondary" onClick={handleNLP} disabled={nlpLoading || !nlpInput.trim() || !!itemizedReceipt} className="shrink-0 h-10">
               {nlpLoading && <Loader2 className="h-4 w-4 animate-spin" />}
               {nlpLoading ? 'Parsing…' : 'Parse'}
             </Button>
           </div>
-          <Button variant="ghost" size="sm" asChild className="cursor-pointer h-7 -ml-1">
-            <label>
-              <Camera className="h-3.5 w-3.5" /> Scan Receipt
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && handleReceiptScan(e.target.files[0])} />
-            </label>
-          </Button>
+          {itemizedReceipt && (
+            <p className="text-xs text-muted-foreground -mt-1">
+              AI quick entry and receipt scan are disabled while an itemized split is active — remove it first to use them.
+            </p>
+          )}
+          <div className="flex items-center gap-1 flex-wrap">
+            <Button variant="ghost" size="sm" asChild className={cn('cursor-pointer h-7 -ml-1', itemizedReceipt && 'opacity-40 pointer-events-none')} disabled={!!itemizedReceipt}>
+              <label>
+                <Camera className="h-3.5 w-3.5" /> Scan Receipt
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  disabled={!!itemizedReceipt}
+                  onChange={(e) => e.target.files?.[0] && handleReceiptScan(e.target.files[0])}
+                />
+              </label>
+            </Button>
+            {isPro ? (
+              <Button variant="ghost" size="sm" asChild className="cursor-pointer h-7" disabled={itemizeLoading}>
+                <label>
+                  {itemizeLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Receipt className="h-3.5 w-3.5" />}
+                  Split by items
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    disabled={itemizeLoading}
+                    onChange={(e) => e.target.files?.[0] && handleItemizedScan(e.target.files[0])}
+                  />
+                </label>
+              </Button>
+            ) : (
+              <Button variant="ghost" size="sm" className="h-7" onClick={() => setShowUpgradeDialog(true)}>
+                <Receipt className="h-3.5 w-3.5" /> Split by items
+                <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 h-4 border-primary/30 text-primary">
+                  <Lock className="h-2.5 w-2.5 mr-0.5" /> PRO
+                </Badge>
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
+
+      {itemizedReceipt && itemizedReceipt.reconciled === true && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            The scanned items don't perfectly add up to the receipt total — amounts may be slightly off. Review before saving.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {createExpense.isError && (
         <Alert variant="destructive">
@@ -306,12 +452,13 @@ export default function CreateExpensePage() {
                   min="0.01"
                   step="0.01"
                   required
+                  disabled={!!itemizedReceipt}
                   className="h-10 tabular-nums text-base font-semibold"
                 />
               </div>
               <div className="space-y-2 col-span-1">
                 <Label>Currency</Label>
-                <Select value={form.currency} onValueChange={(v) => update('currency', v)}>
+                <Select value={form.currency} onValueChange={(v) => update('currency', v)} disabled={!!itemizedReceipt}>
                   <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
@@ -323,6 +470,9 @@ export default function CreateExpensePage() {
                 </Select>
               </div>
             </div>
+            {itemizedReceipt && (
+              <p className="text-xs text-muted-foreground -mt-3">Amount is set by the scanned receipt</p>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -388,31 +538,56 @@ export default function CreateExpensePage() {
           <CardContent className="p-5 space-y-5">
             <div className="space-y-2">
               <Label>Split type</Label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                {SPLIT_TYPES.map((s) => (
-                  <button
-                    key={s.value}
+              {itemizedReceipt ? (
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs text-muted-foreground italic">Split set by receipt items</p>
+                  <Button
                     type="button"
-                    onClick={() => handleSplitTypeChange(s.value)}
-                    className={cn(
-                      'flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-lg border-2 text-left transition-all active:scale-[0.98]',
-                      form.splitType === s.value
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-muted-foreground/30'
-                    )}
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleClearItemized}
+                    className="h-6 px-2 text-xs text-muted-foreground hover:text-destructive"
                   >
-                    <span className={cn(
-                      'text-xs font-semibold',
-                      form.splitType === s.value && 'text-primary'
-                    )}>{s.label}</span>
-                    <span className="text-[10px] text-muted-foreground leading-tight">{s.hint}</span>
-                  </button>
-                ))}
-              </div>
+                    <X className="h-3 w-3" /> Remove itemized split
+                  </Button>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {SPLIT_TYPES.map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => handleSplitTypeChange(s.value)}
+                      className={cn(
+                        'flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-lg border-2 text-left transition-all active:scale-[0.98]',
+                        form.splitType === s.value
+                          ? 'border-primary bg-primary/5'
+                          : 'border-border hover:border-muted-foreground/30'
+                      )}
+                    >
+                      <span className={cn(
+                        'text-xs font-semibold',
+                        form.splitType === s.value && 'text-primary'
+                      )}>{s.label}</span>
+                      <span className="text-[10px] text-muted-foreground leading-tight">{s.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
+            {/* ─── Itemized Split Editor ─── */}
+            {itemizedReceipt && members.length > 0 && (
+              <ItemizedSplitEditor
+                key={`${itemizedReceipt.vendor}-${itemizedReceipt.total}-${itemizedReceipt.items.length}`}
+                receipt={itemizedReceipt}
+                members={itemizedMembers}
+                onChange={setItemizedResult}
+              />
+            )}
+
             {/* ─── Split Details ─── */}
-            {members.length > 0 && form.amount && (
+            {!itemizedReceipt && members.length > 0 && form.amount && (
               <div className="bg-muted rounded-lg p-4 space-y-3">
                 {/* EQUAL Split Preview */}
                 {form.splitType === 'EQUAL' && (
@@ -619,6 +794,25 @@ export default function CreateExpensePage() {
           </Button>
         </div>
       </form>
+
+      <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" /> Upgrade to PRO
+            </DialogTitle>
+            <DialogDescription>
+              Splitting a receipt by individual items is a PRO feature. Upgrade your plan to scan a receipt and assign each item to the people who had it.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowUpgradeDialog(false)}>Not now</Button>
+            <Button asChild>
+              <Link to="/settings/billing">Upgrade</Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

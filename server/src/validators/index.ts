@@ -24,6 +24,14 @@ export const updateProfileSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   avatarUrl: z.string().url().optional().nullable(),
   preferredCurrency: z.string().length(3).optional(),
+  monthlyBudget: z.number().positive().optional().nullable(),
+  monthlyBudgetCurrency: z.string().length(3).optional(),
+  upiId: z
+    .string()
+    .regex(/^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/, 'Invalid UPI ID (e.g. name@bank)')
+    .optional()
+    .or(z.literal('').transform(() => null))
+    .nullable(),
   timezone: z.string().optional(),
   locale: z.string().optional(),
   notifyEmail: z.boolean().optional(),
@@ -94,6 +102,16 @@ export const splitItemSchema = z.object({
   amount: z.number().optional(),
   shares: z.number().positive().optional(),
   percentage: z.number().min(0).max(100).optional(),
+  owedAmount: z.number().nonnegative().optional(),
+});
+
+const expenseItemSchema = z.object({
+  name: z.string().min(1).max(200),
+  quantity: z.number().positive(),
+  unitPrice: z.number(),
+  totalPrice: z.number(),
+  isAdjustment: z.boolean().optional(),
+  assignedTo: z.array(z.string().uuid()).optional(), // empty/absent = shared by all
 });
 
 export const createExpenseSchema = z.object({
@@ -113,6 +131,7 @@ export const createExpenseSchema = z.object({
   isRecurring: z.boolean().default(false),
   recurringPattern: z.string().optional(),
   splits: z.array(splitItemSchema).optional(),
+  items: z.array(expenseItemSchema).max(100).optional(),
 });
 
 export const updateExpenseSchema = z.object({
@@ -128,24 +147,40 @@ export const updateExpenseSchema = z.object({
   date: z.string().datetime().optional(),
   splitType: z.enum(['EQUAL', 'PERCENTAGE', 'EXACT', 'SHARES']).optional(),
   splits: z.array(splitItemSchema).optional(),
+  items: z.array(expenseItemSchema).max(100).optional(),
 });
 
 // ──────────────────────────────────
 // SETTLEMENT VALIDATORS
 // ──────────────────────────────────
 
-export const createSettlementSchema = z.object({
-  tripId: z.string().uuid(),
-  fromUserId: z.string().uuid(),
-  toUserId: z.string().uuid(),
-  amount: z.number().positive(),
-  currency: z.string().length(3).default('USD'),
-  note: z.string().max(500).optional(),
-});
+export const createSettlementSchema = z
+  .object({
+    tripId: z.string().uuid().optional(),
+    groupId: z.string().uuid().optional(),
+    fromUserId: z.string().uuid(),
+    toUserId: z.string().uuid(),
+    amount: z.number().positive(),
+    currency: z.string().length(3).default('USD'),
+    note: z.string().max(500).optional(),
+  })
+  .refine((d) => !!d.tripId !== !!d.groupId, {
+    message: 'Provide exactly one of tripId or groupId',
+  });
 
 export const settleDebtSchema = z.object({
   note: z.string().max(500).optional(),
+  amount: z.number().positive().optional(), // actual amount paid, if different from requested
 });
+
+export const settlePlanSchema = z
+  .object({
+    tripId: z.string().uuid().optional(),
+    groupId: z.string().uuid().optional(),
+  })
+  .refine((d) => !!d.tripId !== !!d.groupId, {
+    message: 'Provide exactly one of tripId or groupId',
+  });
 
 // ──────────────────────────────────
 // SOCIAL VALIDATORS

@@ -144,6 +144,37 @@ export default function ExpenseDetailPage() {
         </div>
       )}
 
+      {/* Items */}
+      {expense.items && expense.items.length > 0 && (
+        <div>
+          <h2 className="text-base font-semibold mb-3 px-1">Items</h2>
+          <Card>
+            <ul className="divide-y">
+              {expense.items.map((item, idx) => {
+                const claimants = (item.assignedTo ?? [])
+                  .map((id) => expense.splits?.find((s) => s.userId === id)?.user?.name)
+                  .filter((n): n is string => !!n);
+                return (
+                  <li key={idx} className="px-4 py-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className={cn('text-sm font-medium truncate', item.isAdjustment && 'text-muted-foreground italic font-normal')}>
+                        {item.name}{item.quantity > 1 ? ` ×${item.quantity}` : ''}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {claimants.length > 0 ? claimants.join(', ') : 'Shared'}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold tabular-nums">
+                      {formatMoney(item.totalPrice, expense.currency)}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
+        </div>
+      )}
+
       {/* Reactions */}
       <div>
         <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2 px-1">React</p>

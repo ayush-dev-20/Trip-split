@@ -1,9 +1,10 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/database';
 import { asyncHandler, AppError, paginate, paginationMeta } from '../utils';
-import { calculateNetBalances, simplifyDebts } from '../services/settlementService';
+import { buildBalanceSheet } from '../services/settlementService';
 import { logActivity, logAudit } from '../services/auditService';
 import { notifyUsers } from '../services/notificationService';
+import { recordSettlementPlan, refreshSettlementPlan } from '../services/settlementPlanService';
 
 /**
  * GET /api/settlements/balances/:tripId
@@ -27,7 +28,7 @@ export const getTripBalances = asyncHandler(async (req: Request, res: Response) 
     where: { tripId },
     include: {
       splits: true,
-      paidBy: { select: { id: true, name: true, avatarUrl: true } },
+      paidBy: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
     },
   });
 
@@ -35,32 +36,26 @@ export const getTripBalances = asyncHandler(async (req: Request, res: Response) 
     where: { tripId, status: 'SETTLED' },
   });
 
-  const netBalances = calculateNetBalances(
+  const { netBalances, simplifiedDebts } = buildBalanceSheet(
     expenses.map((e: any) => ({
       paidById: e.paidById,
       splitType: e.splitType,
       baseAmount: e.baseAmount,
-      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount })),
-    }))
+      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount, owedAmount: s.owedAmount })),
+    })),
+    settlements
   );
 
-  // Apply settled payments: fromUser paid toUser, so:
-  //   fromUser contributed more → balance goes UP
-  //   toUser received payment  → balance goes DOWN
-  for (const settlement of settlements) {
-    const fromIdx = netBalances.findIndex((b: any) => b.userId === settlement.fromUserId);
-    const toIdx = netBalances.findIndex((b: any) => b.userId === settlement.toUserId);
-
-    if (fromIdx !== -1) netBalances[fromIdx].amount = (netBalances[fromIdx].amount || 0) + settlement.amount;
-    if (toIdx !== -1) netBalances[toIdx].amount = (netBalances[toIdx].amount || 0) - settlement.amount;
-  }
-
-  const simplifiedDebts = simplifyDebts(netBalances);
+  // Who should pay next: the most negative settlement-adjusted balance.
+  const debtorsRanked = netBalances
+    .filter((b) => b.amount < -0.01)
+    .sort((a, b) => a.amount - b.amount);
+  const whoPaysNextBalance = debtorsRanked.length > 0 ? debtorsRanked[0] : null;
 
   const userIds = [...new Set(netBalances.map((b: any) => b.userId))];
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
-    select: { id: true, name: true, avatarUrl: true },
+    select: { id: true, name: true, avatarUrl: true, upiId: true },
   });
 
   const userMap = new Map(users.map((u: any) => [u.id, u]));
@@ -77,9 +72,88 @@ export const getTripBalances = asyncHandler(async (req: Request, res: Response) 
         to: userMap.get(d.to),
         amount: d.amount,
       })),
+      whoPaysNext: whoPaysNextBalance
+        ? { user: userMap.get(whoPaysNextBalance.userId), amount: whoPaysNextBalance.amount }
+        : null,
       totalExpenses: expenses.length,
       totalSettled: settlements.length,
       currency: trip?.budgetCurrency || 'USD',
+    },
+  });
+});
+
+/**
+ * GET /api/settlements/balances/group/:groupId
+ * Get all balances and simplified debts for a group's direct (non-trip) expenses.
+ */
+export const getGroupBalances = asyncHandler(async (req: Request, res: Response) => {
+  const groupId = req.params.groupId as string;
+  const userId = req.user!.id as string;
+
+  const isMember = await prisma.groupMember.findFirst({
+    where: { groupId, userId },
+  });
+  if (!isMember) throw AppError.forbidden('You are not a member of this group');
+
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    select: { defaultCurrency: true },
+  });
+
+  const expenses = await prisma.expense.findMany({
+    where: { groupId, tripId: null },
+    include: {
+      splits: true,
+      paidBy: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
+    },
+  });
+
+  const settlements = await prisma.settlement.findMany({
+    where: { groupId, status: 'SETTLED' },
+  });
+
+  const { netBalances, simplifiedDebts } = buildBalanceSheet(
+    expenses.map((e: any) => ({
+      paidById: e.paidById,
+      splitType: e.splitType,
+      baseAmount: e.baseAmount,
+      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount, owedAmount: s.owedAmount })),
+    })),
+    settlements
+  );
+
+  // Who should pay next: the most negative settlement-adjusted balance.
+  const debtorsRanked = netBalances
+    .filter((b) => b.amount < -0.01)
+    .sort((a, b) => a.amount - b.amount);
+  const whoPaysNextBalance = debtorsRanked.length > 0 ? debtorsRanked[0] : null;
+
+  const userIds = [...new Set(netBalances.map((b: any) => b.userId))];
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, avatarUrl: true, upiId: true },
+  });
+
+  const userMap = new Map(users.map((u: any) => [u.id, u]));
+
+  res.json({
+    success: true,
+    data: {
+      balances: netBalances.map((b: any) => ({
+        user: userMap.get(b.userId),
+        amount: b.amount,
+      })),
+      simplifiedDebts: simplifiedDebts.map((d: any) => ({
+        from: userMap.get(d.from),
+        to: userMap.get(d.to),
+        amount: d.amount,
+      })),
+      whoPaysNext: whoPaysNextBalance
+        ? { user: userMap.get(whoPaysNextBalance.userId), amount: whoPaysNextBalance.amount }
+        : null,
+      totalExpenses: expenses.length,
+      totalSettled: settlements.length,
+      currency: group?.defaultCurrency || 'USD',
     },
   });
 });
@@ -89,32 +163,43 @@ export const getTripBalances = asyncHandler(async (req: Request, res: Response) 
  * Create a settlement record (mark as pending).
  */
 export const createSettlement = asyncHandler(async (req: Request, res: Response) => {
-  const { tripId, fromUserId, toUserId, amount, currency, note } = req.body;
+  const { tripId, groupId, fromUserId, toUserId, amount, currency, note } = req.body;
   const userId = req.user!.id as string;
 
-  const isMember = await prisma.tripMember.findFirst({
-    where: { tripId, userId },
-  });
-  if (!isMember) throw AppError.forbidden('You are not a member of this trip');
+  let budgetCurrency: string | undefined;
 
-  const trip = await prisma.trip.findUnique({
-    where: { id: tripId },
-    select: { budgetCurrency: true },
-  });
+  if (tripId) {
+    const isMember = await prisma.tripMember.findFirst({
+      where: { tripId, userId },
+    });
+    if (!isMember) throw AppError.forbidden('You are not a member of this trip');
+
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      select: { budgetCurrency: true },
+    });
+    budgetCurrency = trip?.budgetCurrency;
+  } else {
+    const isMember = await prisma.groupMember.findFirst({
+      where: { groupId, userId },
+    });
+    if (!isMember) throw AppError.forbidden('You are not a member of this group');
+  }
 
   const settlement = await prisma.settlement.create({
     data: {
-      tripId,
+      tripId: tripId ?? undefined,
+      groupId: groupId ?? undefined,
       fromUserId,
       toUserId,
       amount,
-      currency: currency || trip?.budgetCurrency || 'USD',
+      currency: currency || budgetCurrency || 'USD',
       note,
       status: 'PENDING',
     },
     include: {
-      fromUser: { select: { id: true, name: true, avatarUrl: true } },
-      toUser: { select: { id: true, name: true, avatarUrl: true } },
+      fromUser: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
+      toUser: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
     },
   });
 
@@ -124,7 +209,7 @@ export const createSettlement = asyncHandler(async (req: Request, res: Response)
       type: 'SETTLEMENT_REQUEST',
       title: 'Settlement Request',
       message: `A settlement of $${amount} has been initiated`,
-      data: { tripId, settlementId: settlement.id },
+      data: { tripId, groupId, settlementId: settlement.id },
     }
   );
 
@@ -153,16 +238,19 @@ export const settleDebt = asyncHandler(async (req: Request, res: Response) => {
     throw AppError.forbidden('Only involved parties can settle this debt');
   }
 
+  const paidAmount = typeof req.body.amount === 'number' ? req.body.amount : settlement.amount;
+
   const updated = await prisma.settlement.update({
     where: { id: settlementId },
     data: {
       status: 'SETTLED',
+      amount: paidAmount,
       settledAt: new Date(),
       note: req.body.note || settlement.note,
     },
     include: {
-      fromUser: { select: { id: true, name: true, avatarUrl: true } },
-      toUser: { select: { id: true, name: true, avatarUrl: true } },
+      fromUser: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
+      toUser: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
     },
   });
 
@@ -171,16 +259,16 @@ export const settleDebt = asyncHandler(async (req: Request, res: Response) => {
     entityType: 'settlement',
     entityId: settlement.id,
     userId,
-    after: { status: 'SETTLED', amount: settlement.amount },
+    after: { status: 'SETTLED', amount: updated.amount },
   });
 
   await logActivity({
-    action: `${settlement.fromUser.name} settled $${settlement.amount} with ${settlement.toUser.name}`,
+    action: `${settlement.fromUser.name} settled $${updated.amount} with ${settlement.toUser.name}`,
     type: 'SETTLE',
     entityType: 'settlement',
     entityId: settlement.id,
     userId,
-    tripId: settlement.tripId,
+    tripId: settlement.tripId ?? undefined,
   });
 
   await notifyUsers(
@@ -188,10 +276,15 @@ export const settleDebt = asyncHandler(async (req: Request, res: Response) => {
     {
       type: 'SETTLEMENT_COMPLETED',
       title: 'Debt Settled ✅',
-      message: `$${settlement.amount} has been marked as settled`,
+      message: `$${updated.amount} has been marked as settled`,
       data: { tripId: settlement.tripId, settlementId: settlement.id },
     }
   );
+
+  await refreshSettlementPlan({
+    tripId: settlement.tripId ?? undefined,
+    groupId: settlement.groupId ?? undefined,
+  });
 
   res.json({ success: true, data: updated });
 });
@@ -225,7 +318,7 @@ export const getOverallBalances = asyncHandler(async (req: Request, res: Respons
       where: { tripId: { in: tripIds } },
       include: {
         splits: true,
-        paidBy: { select: { id: true, name: true, avatarUrl: true } },
+        paidBy: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
       },
     }),
     prisma.settlement.findMany({
@@ -242,14 +335,14 @@ export const getOverallBalances = asyncHandler(async (req: Request, res: Respons
 
   const participants = await prisma.user.findMany({
     where: { id: { in: [...participantIds] } },
-    select: { id: true, name: true, avatarUrl: true },
+    select: { id: true, name: true, avatarUrl: true, upiId: true },
   });
   const userMap = new Map(participants.map((u: any) => [u.id, u]));
 
   // Process per-trip: calculate net balances and simplified debts, then filter to current user
   // Key: `${fromUserId}->${toUserId}` → aggregate amounts per counterpart
-  const iOweMap = new Map<string, { user: { id: string; name: string; avatarUrl?: string }; amount: number; trips: { id: string; name: string }[] }>();
-  const owedToMeMap = new Map<string, { user: { id: string; name: string; avatarUrl?: string }; amount: number; trips: { id: string; name: string }[] }>();
+  const iOweMap = new Map<string, { user: { id: string; name: string; avatarUrl?: string; upiId?: string | null }; amount: number; trips: { id: string; name: string }[] }>();
+  const owedToMeMap = new Map<string, { user: { id: string; name: string; avatarUrl?: string; upiId?: string | null }; amount: number; trips: { id: string; name: string }[] }>();
 
   for (const tripId of tripIds) {
     const tripExpenses = allExpenses.filter((e: any) => e.tripId === tripId);
@@ -258,24 +351,15 @@ export const getOverallBalances = asyncHandler(async (req: Request, res: Respons
 
     if (tripExpenses.length === 0) continue;
 
-    const netBalances = calculateNetBalances(
+    const { simplifiedDebts } = buildBalanceSheet(
       tripExpenses.map((e: any) => ({
         paidById: e.paidById,
         splitType: e.splitType,
         baseAmount: e.baseAmount,
-        splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount })),
-      }))
+        splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount, owedAmount: s.owedAmount })),
+      })),
+      tripSettlements
     );
-
-    // Apply settled payments
-    for (const settlement of tripSettlements) {
-      const fromIdx = netBalances.findIndex((b: any) => b.userId === settlement.fromUserId);
-      const toIdx = netBalances.findIndex((b: any) => b.userId === settlement.toUserId);
-      if (fromIdx !== -1) netBalances[fromIdx].amount = (netBalances[fromIdx].amount || 0) + settlement.amount;
-      if (toIdx !== -1) netBalances[toIdx].amount = (netBalances[toIdx].amount || 0) - settlement.amount;
-    }
-
-    const simplifiedDebts = simplifyDebts(netBalances);
 
     for (const debt of simplifiedDebts) {
       if (debt.from === userId) {
@@ -322,22 +406,33 @@ export const getOverallBalances = asyncHandler(async (req: Request, res: Respons
  */
 export const getSettlements = asyncHandler(async (req: Request, res: Response) => {
   const tripId = req.query.tripId as string | undefined;
+  const groupId = req.query.groupId as string | undefined;
   const status = req.query.status as string | undefined;
   const page = req.query.page as string | undefined;
   const limit = req.query.limit as string | undefined;
+  const userId = req.user!.id as string;
   const { take, skip } = paginate(page as any, limit as any);
 
-  if (!tripId) throw AppError.badRequest('tripId is required');
+  if (!tripId && !groupId) throw AppError.badRequest('Either tripId or groupId is required');
+  if (tripId && groupId) throw AppError.badRequest('Provide only one of tripId or groupId');
 
-  const where: any = { tripId };
+  if (tripId) {
+    const isMember = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+    if (!isMember) throw AppError.forbidden('You are not a member of this trip');
+  } else {
+    const isMember = await prisma.groupMember.findFirst({ where: { groupId: groupId!, userId } });
+    if (!isMember) throw AppError.forbidden('You are not a member of this group');
+  }
+
+  const where: any = tripId ? { tripId } : { groupId };
   if (status) where.status = status;
 
   const [settlements, total] = await Promise.all([
     prisma.settlement.findMany({
       where,
       include: {
-        fromUser: { select: { id: true, name: true, avatarUrl: true } },
-        toUser: { select: { id: true, name: true, avatarUrl: true } },
+        fromUser: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
+        toUser: { select: { id: true, name: true, avatarUrl: true, upiId: true } },
       },
       orderBy: { createdAt: 'desc' },
       take,
@@ -351,4 +446,25 @@ export const getSettlements = asyncHandler(async (req: Request, res: Response) =
     data: settlements,
     pagination: paginationMeta(total, Number(page) || 1, Number(limit) || 20),
   });
+});
+
+/**
+ * POST /api/settlements/settle-plan
+ * Turn the current simplified-debt graph into PENDING settlements (replacing
+ * any previously recorded plan for the scope).
+ */
+export const settlePlan = asyncHandler(async (req: Request, res: Response) => {
+  const { tripId, groupId } = req.body as { tripId?: string; groupId?: string };
+  const userId = req.user!.id as string;
+
+  if (tripId) {
+    const isMember = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+    if (!isMember) throw AppError.forbidden('You are not a member of this trip');
+  } else {
+    const isMember = await prisma.groupMember.findFirst({ where: { groupId: groupId!, userId } });
+    if (!isMember) throw AppError.forbidden('You are not a member of this group');
+  }
+
+  const created = await recordSettlementPlan({ tripId, groupId });
+  res.status(201).json({ success: true, data: created });
 });

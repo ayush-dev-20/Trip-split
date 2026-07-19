@@ -1,11 +1,13 @@
 import { Request, Response } from 'express';
 import { prisma } from '../config/database';
-import { SplitType } from '@prisma/client';
+import { Prisma, SplitType } from '@prisma/client';
 import { asyncHandler, AppError, paginate, paginationMeta, roundCurrency } from '../utils';
 import { convertCurrency } from '../services/currencyService';
 import { logActivity, logAudit } from '../services/auditService';
 import { notifyUsers } from '../services/notificationService';
 import { detectAnomalies } from '../services/aiService';
+import { refreshSettlementPlan } from '../services/settlementPlanService';
+import { scaleOwedAmounts } from '../services/settlementService';
 
 /**
  * Calculate split amounts based on split type.
@@ -84,7 +86,7 @@ function calculateSplits(
 export const createExpense = asyncHandler(async (req: Request, res: Response) => {
   const {
     title, description, amount, currency, category, date,
-    splitType, tripId, paidById, isRecurring, recurringPattern, splits: splitData,
+    splitType, tripId, paidById, isRecurring, recurringPattern, splits: splitData, items,
   } = req.body;
   const userId = req.user!.id as string;
 
@@ -111,7 +113,48 @@ export const createExpense = asyncHandler(async (req: Request, res: Response) =>
     ? splitData.map((s: any) => s.userId)
     : trip.members.map((m: any) => m.userId);
 
-  const calculatedSplits = calculateSplits(convertedAmount, splitType || 'EQUAL', memberIds, paidById, splitData);
+  // Itemization: per-split owedAmount (fair share) is optional — either all splits
+  // carry it or none do, and it must sum to the expense amount (in expense currency).
+  const owedSplits = splitData?.filter((s: { owedAmount?: number }) => s.owedAmount != null) ?? [];
+  let owedByUser: Map<string, number> | null = null;
+  let splitDataForCalc = splitData;
+  if (owedSplits.length > 0) {
+    if (owedSplits.length !== splitData!.length) {
+      throw AppError.badRequest('Either all splits or none must carry owedAmount');
+    }
+    const owedSum = owedSplits.reduce((s: number, x: { owedAmount?: number }) => s + (x.owedAmount ?? 0), 0);
+    if (Math.abs(owedSum - amount) > 0.05) {
+      throw AppError.badRequest('owedAmount values must sum to the expense amount');
+    }
+    // Scale to base currency alongside baseAmount, reconciling rounding drift.
+    owedByUser = scaleOwedAmounts(
+      owedSplits.map((s: { userId: string; owedAmount?: number }) => ({
+        userId: s.userId,
+        owedAmount: s.owedAmount ?? 0,
+      })),
+      exchangeRate,
+      convertedAmount
+    );
+
+    // The client sends split.amount (contribution) in EXPENSE currency, but
+    // calculateSplits validates EXACT amounts against convertedAmount (BASE
+    // currency). Scale contributions into base currency the same way, so the
+    // EXACT sum check compares like with like.
+    const scaledContributions = scaleOwedAmounts(
+      splitData!.map((s: { userId: string; amount?: number }) => ({
+        userId: s.userId,
+        owedAmount: s.amount ?? 0,
+      })),
+      exchangeRate,
+      convertedAmount
+    );
+    splitDataForCalc = splitData!.map((s: any) => ({
+      ...s,
+      amount: scaledContributions.get(s.userId) ?? 0,
+    }));
+  }
+
+  const calculatedSplits = calculateSplits(convertedAmount, splitType || 'EQUAL', memberIds, paidById, splitDataForCalc);
 
   // Create expense with splits
   const expense = await prisma.expense.create({
@@ -129,12 +172,14 @@ export const createExpense = asyncHandler(async (req: Request, res: Response) =>
       recurringPattern,
       tripId,
       paidById,
+      items: items ?? undefined,
       splits: {
         create: calculatedSplits.map((s) => ({
           userId: s.userId,
           amount: s.amount,
           shares: s.shares,
           percentage: s.percentage,
+          owedAmount: owedByUser?.get(s.userId) ?? null,
         })),
       },
     },
@@ -202,6 +247,8 @@ export const createExpense = asyncHandler(async (req: Request, res: Response) =>
   } catch (e) {
     console.error('Anomaly detection failed:', e);
   }
+
+  await refreshSettlementPlan({ tripId: tripId ?? undefined });
 
   res.status(201).json({ success: true, data: expense });
 });
@@ -335,12 +382,53 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
       ? newSplits.map((s: any) => s.userId)
       : expense.trip!.members.map((m: any) => m.userId);
 
+    // Itemization: per-split owedAmount (fair share) is optional — either all splits
+    // carry it or none do, and it must sum to the expense amount (in expense currency).
+    const owedSplits = newSplits?.filter((s: { owedAmount?: number }) => s.owedAmount != null) ?? [];
+    let owedByUser: Map<string, number> | null = null;
+    let newSplitsForCalc = newSplits;
+    if (owedSplits.length > 0) {
+      if (owedSplits.length !== newSplits!.length) {
+        throw AppError.badRequest('Either all splits or none must carry owedAmount');
+      }
+      const owedSum = owedSplits.reduce((s: number, x: { owedAmount?: number }) => s + (x.owedAmount ?? 0), 0);
+      if (Math.abs(owedSum - updated.amount) > 0.05) {
+        throw AppError.badRequest('owedAmount values must sum to the expense amount');
+      }
+      // Scale to base currency alongside baseAmount, reconciling rounding drift.
+      owedByUser = scaleOwedAmounts(
+        owedSplits.map((s: { userId: string; owedAmount?: number }) => ({
+          userId: s.userId,
+          owedAmount: s.owedAmount ?? 0,
+        })),
+        updated.exchangeRate,
+        updated.baseAmount
+      );
+
+      // The client sends split.amount (contribution) in EXPENSE currency, but
+      // calculateSplits validates EXACT amounts against updated.baseAmount (BASE
+      // currency). Scale contributions into base currency the same way, so the
+      // EXACT sum check compares like with like.
+      const scaledContributions = scaleOwedAmounts(
+        newSplits!.map((s: { userId: string; amount?: number }) => ({
+          userId: s.userId,
+          owedAmount: s.amount ?? 0,
+        })),
+        updated.exchangeRate,
+        updated.baseAmount
+      );
+      newSplitsForCalc = newSplits!.map((s: any) => ({
+        ...s,
+        amount: scaledContributions.get(s.userId) ?? 0,
+      }));
+    }
+
     const calculatedSplits = calculateSplits(
       updated.baseAmount,
       updated.splitType,
       memberIds,
       updated.paidById,
-      newSplits
+      newSplitsForCalc
     );
 
     await prisma.expenseSplit.createMany({
@@ -350,8 +438,20 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
         amount: s.amount,
         shares: s.shares,
         percentage: s.percentage,
+        owedAmount: owedByUser?.get(s.userId) ?? null,
       })),
     });
+
+    // De-itemizing edit: splits were recreated without owedAmounts, but the
+    // expense still has an items payload from a prior itemized save. Clear it
+    // so the detail page can't show a stale Items card that no longer drives
+    // balances.
+    if (owedSplits.length === 0 && expense.items != null) {
+      await prisma.expense.update({
+        where: { id: expense.id },
+        data: { items: Prisma.DbNull },
+      });
+    }
   }
 
   await logAudit({
@@ -362,6 +462,8 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
     before,
     after: updateData,
   });
+
+  await refreshSettlementPlan({ tripId: expense.tripId ?? undefined });
 
   res.json({ success: true, data: updated });
 });
@@ -406,6 +508,8 @@ export const deleteExpense = asyncHandler(async (req: Request, res: Response) =>
     userId,
     tripId: expense.tripId ?? undefined,
   });
+
+  await refreshSettlementPlan({ tripId: expense.tripId ?? undefined });
 
   res.json({ success: true, message: 'Expense deleted' });
 });

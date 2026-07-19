@@ -4,6 +4,7 @@ import type {
   PersonalExpenseCalendarDay,
   PersonalAnalytics,
   PersonalAnalyticsPeriod,
+  PersonalBudgetStatus,
   CreatePersonalExpensePayload,
 } from '@/types';
 
@@ -51,6 +52,25 @@ export const personalExpenseService = {
     api
       .get<{ success: boolean; data: PersonalExpense[] }>('/personal-expenses/recurring')
       .then((r) => r.data.data ?? []),
+
+  getBudgetStatus: () =>
+    api
+      .get<{ success: boolean; data: PersonalBudgetStatus }>('/personal-expenses/budget-status')
+      .then((r) => r.data.data),
+
+  exportCSV: (params?: { category?: string }) => {
+    const qs = new URLSearchParams(
+      Object.entries(params ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    ).toString();
+    window.open(`/api/personal-expenses/export/csv${qs ? `?${qs}` : ''}`, '_blank');
+  },
+
+  exportPDF: (params?: { category?: string }) => {
+    const qs = new URLSearchParams(
+      Object.entries(params ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined)
+    ).toString();
+    window.open(`/api/personal-expenses/export/pdf${qs ? `?${qs}` : ''}`, '_blank');
+  },
 
   // Pass either { period, referenceDate? } or { startDate, endDate } (custom
   // range takes priority server-side if both happen to be present).

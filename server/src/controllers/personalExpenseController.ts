@@ -3,6 +3,7 @@ import { prisma } from '../config/database';
 import { asyncHandler, AppError } from '../utils';
 import { convertCurrency } from '../services/currencyService';
 import { logActivity } from '../services/auditService';
+import { computeMonthlyBudgetStatus } from '../services/personalBudgetService';
 
 /**
  * POST /api/personal-expenses
@@ -238,4 +239,37 @@ export const getRecurringExpenses = asyncHandler(async (req: Request, res: Respo
   });
 
   res.json({ success: true, data: expenses });
+});
+
+/**
+ * GET /api/personal-expenses/budget-status
+ */
+export const getPersonalBudgetStatus = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { monthlyBudget: true, monthlyBudgetCurrency: true, preferredCurrency: true },
+  });
+
+  const resolvedCurrency = user.monthlyBudgetCurrency ?? user.preferredCurrency;
+
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endOfMonth   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+  const spentAgg = await prisma.expense.aggregate({
+    where: { paidById: userId, tripId: null, date: { gte: startOfMonth, lte: endOfMonth } },
+    _sum: { baseAmount: true },
+  });
+  const totalSpentThisMonth = spentAgg._sum.baseAmount ?? 0;
+
+  const status = computeMonthlyBudgetStatus({
+    budget: user.monthlyBudget,
+    currency: resolvedCurrency,
+    totalSpentThisMonth,
+    now,
+  });
+
+  res.json({ success: true, data: status });
 });

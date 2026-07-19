@@ -113,6 +113,9 @@ model User {
   name              String
   avatarUrl         String?
   preferredCurrency String   @default("USD")
+  monthlyBudget         Float?
+  monthlyBudgetCurrency String?
+  upiId             String?
   googleId          String?  @unique
   clerkId           String?  @unique  // Clerk user ID (user_xxx)
   phone             String?  @unique
@@ -199,9 +202,10 @@ model Group {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  members  GroupMember[]
-  trips    Trip[]
-  expenses Expense[]
+  members     GroupMember[]
+  trips       Trip[]
+  expenses    Expense[]
+  settlements Settlement[]
 
   @@index([inviteCode])
 }
@@ -289,6 +293,7 @@ model Expense {
   isRecurring     Boolean         @default(false)
   recurringPattern String?        // cron-like pattern
   receiptUrl      String?
+  items           Json?           // itemized receipt lines + assignments
   tripId          String?
   trip            Trip?           @relation(fields: [tripId], references: [id], onDelete: Cascade)
   groupId         String?
@@ -321,6 +326,7 @@ model ExpenseSplit {
   amount    Float   // the actual amount this user owes
   shares    Float?  // number of shares (for SHARES split)
   percentage Float? // percentage (for PERCENTAGE split)
+  owedAmount Float? // fair share for this user (itemized); null = equal share
   isPaid    Boolean @default(false)
 
   @@unique([expenseId, userId])
@@ -345,8 +351,10 @@ model Receipt {
 
 model Settlement {
   id          String           @id @default(uuid())
-  tripId      String
-  trip        Trip             @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripId      String?
+  trip        Trip?            @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  groupId     String?
+  group       Group?           @relation(fields: [groupId], references: [id], onDelete: Cascade)
   fromUserId  String
   fromUser    User             @relation("SettlementFrom", fields: [fromUserId], references: [id])
   toUserId    String
@@ -360,6 +368,7 @@ model Settlement {
   updatedAt   DateTime         @updatedAt
 
   @@index([tripId])
+  @@index([groupId])
   @@index([fromUserId])
   @@index([toUserId])
   @@index([status])

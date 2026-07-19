@@ -25,6 +25,16 @@ export const scanReceipt = asyncHandler(async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/ai/scan-receipt-items — PRO: line-item extraction.
+ */
+export const scanReceiptItems = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.file) throw AppError.badRequest('Receipt image is required (field: receipt)');
+  const base64 = req.file.buffer.toString('base64');
+  const result = await aiService.scanReceiptItemized(base64, req.file.mimetype);
+  res.json({ success: true, data: result });
+});
+
+/**
  * POST /api/ai/categorize
  */
 export const categorizeExpense = asyncHandler(async (req: Request, res: Response) => {
@@ -321,7 +331,7 @@ export const chatbot = asyncHandler(async (req: Request, res: Response) => {
       paidById: e.paidById,
       splitType: e.splitType,
       baseAmount: e.baseAmount,
-      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount })),
+      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount, owedAmount: s.owedAmount })),
     }))
   );
 
@@ -549,17 +559,20 @@ export const predictCost = asyncHandler(async (req: Request, res: Response) => {
 
 /**
  * POST /api/ai/detect-anomaly
+ * tripId omitted → personal-expense scope (category average from the user's own history).
  */
 export const detectAnomaly = asyncHandler(async (req: Request, res: Response) => {
   const { title, amount, category, tripId } = req.body;
+  const userId = req.user!.id as string;
 
-  if (!title || !amount || !tripId) {
-    throw AppError.badRequest('title, amount, and tripId are required');
+  if (!title || !amount) {
+    throw AppError.badRequest('title and amount are required');
   }
 
-  // Get category average from the trip
   const categoryExpenses = await prisma.expense.aggregate({
-    where: { tripId, category: category || 'MISCELLANEOUS' },
+    where: tripId
+      ? { tripId, category: category || 'MISCELLANEOUS' }
+      : { paidById: userId, tripId: null, category: category || 'MISCELLANEOUS' },
     _avg: { baseAmount: true },
   });
 

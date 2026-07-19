@@ -14,6 +14,7 @@ router.use(authenticate);
 router.post('/', validate({ body: createTripSchema }), trips.createTrip);
 router.get('/', trips.getTrips);
 router.post('/sync-statuses', trips.syncTripStatuses);
+router.get('/:id/budget-status', trips.getBudgetStatus);
 router.get('/:id', validate({ params: idParamSchema }), trips.getTrip);
 router.put('/:id', validate({ params: idParamSchema, body: updateTripSchema }), trips.updateTrip);
 router.delete('/:id', validate({ params: idParamSchema }), trips.deleteTrip);

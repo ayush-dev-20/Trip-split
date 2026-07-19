@@ -8,6 +8,7 @@ router.use(authenticate);
 router.use(aiLimiter);
 
 router.post('/scan-receipt', requireFeature('aiReceiptScanner'), ai.uploadReceiptMiddleware, ai.scanReceipt);
+router.post('/scan-receipt-items', requireFeature('aiReceiptItemization'), ai.uploadReceiptMiddleware, ai.scanReceiptItems);
 router.post('/categorize', requireFeature('aiCategorizer'), ai.categorizeExpense);
 router.post('/budget-advisor', requireFeature('aiBudgetAdvisor'), ai.budgetAdvisor);
 router.post('/spending-insights/:tripId', requireFeature('aiSpendingInsights'), ai.spendingInsights);

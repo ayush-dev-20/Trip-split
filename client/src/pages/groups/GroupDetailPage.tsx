@@ -39,6 +39,7 @@ import { cn } from '@/lib/utils';
 import type { GroupExpense, GroupAnalyticsPeriod, ExpenseCategory } from '@/types';
 import AIChatPanel from '@/components/ui/AIChatPanel';
 import { aiService } from '@/services/aiService';
+import GroupBalancesSection from '@/components/groups/GroupBalancesSection';
 
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 
@@ -415,20 +416,22 @@ function GroupExpensesTab({ groupId, currency }: { groupId: string; currency: st
   return (
     <div className="space-y-4">
       {/* Sub-tab toggle */}
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-          {SUB_VIEWS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setSub(id)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                sub === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />{label}
-            </button>
-          ))}
+      <div className="flex items-center justify-between gap-3">
+        <div className="overflow-x-auto min-w-0">
+          <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+            {SUB_VIEWS.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                onClick={() => setSub(id)}
+                className={cn(
+                  'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
+                  sub === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />{label}
+              </button>
+            ))}
+          </div>
         </div>
         {isConnected && (
           <span className="flex items-center gap-1.5 text-xs text-green-600 dark:text-green-400 font-medium">
@@ -470,19 +473,21 @@ function GroupAnalyticsTab({ groupId, currency }: { groupId: string; currency: s
   return (
     <div className="space-y-5">
       {/* Period selector */}
-      <div className="flex gap-1.5">
-        {PERIODS.map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            className={cn(
-              'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize',
-              period === p ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {p}
-          </button>
-        ))}
+      <div className="overflow-x-auto">
+        <div className="flex gap-1.5 w-fit">
+          {PERIODS.map((p) => (
+            <button
+              key={p}
+              onClick={() => setPeriod(p)}
+              className={cn(
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors capitalize shrink-0 whitespace-nowrap',
+                period === p ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Stat cards */}
@@ -696,6 +701,8 @@ function OverviewTab({ group, trips, copyCode, copied }: {
           </div>
         )}
       </section>
+
+      <GroupBalancesSection groupId={group.id} groupName={group.name} />
     </div>
   );
 }
@@ -755,20 +762,22 @@ export default function GroupDetailPage() {
       />
 
       {/* Tab bar */}
-      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-              activeTab === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">{label}</span>
-          </button>
-        ))}
+      <div className="overflow-x-auto">
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
+                activeTab === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">{label}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Content */}

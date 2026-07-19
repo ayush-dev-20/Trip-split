@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import type { Components } from 'react-markdown';
 import { useParams, Link, useNavigate } from 'react-router';
-import { useTrip, useDeleteTrip, useUpdateTrip } from '@/hooks/useTrips';
+import { useTrip, useDeleteTrip, useUpdateTrip, useBudgetStatus } from '@/hooks/useTrips';
 import { useExpenses } from '@/hooks/useExpenses';
 import { useBalances } from '@/hooks/useSettlements';
 import {
@@ -22,6 +22,8 @@ import CheckpointFormDialog from '@/components/ui/CheckpointFormDialog';
 import EmptyState from '@/components/ui/EmptyState';
 import SectionHeading from '@/components/ui/SectionHeading';
 import UserAvatar from '@/components/ui/UserAvatar';
+import WhoPaysNextCard from '@/components/settlements/WhoPaysNextCard';
+import BudgetBurnRateCard from '@/components/trips/BudgetBurnRateCard';
 import {
   MapPin, Calendar, Plus, Receipt, ArrowLeft,
   MoreVertical, Trash2, Settings, Share2, ArrowRightLeft, Pencil, Download,
@@ -75,6 +77,7 @@ export default function TripDetailPage() {
   const { data: trip, isLoading } = useTrip(tripId!);
   const { data: expensesData } = useExpenses(tripId!);
   const { data: balances } = useBalances(tripId!);
+  const { data: budgetStatus } = useBudgetStatus(tripId!);
   const { data: checkpoints = [] } = useCheckpoints(tripId!);
   const deleteTrip = useDeleteTrip();
   const updateTrip = useUpdateTrip();
@@ -382,24 +385,44 @@ ${content}
       {/* ── Quick action grid ────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {[
-          { to: `/trips/${tripId}/expenses/new`, icon: Plus, label: 'Add Expense', primary: true },
+          {
+            to: `/trips/${tripId}/expenses/new`,
+            icon: Plus,
+            label: 'Add Expense',
+            primary: true,
+            state: { suggestedPayerId: balances?.whoPaysNext?.user.id },
+          },
           { to: `/trips/${tripId}/expenses`, icon: Receipt, label: 'Expenses' },
           { to: `/trips/${tripId}/settlements`, icon: ArrowRightLeft, label: 'Settle Up' },
           { to: `/trips/${tripId}/notes`, icon: NotebookPen, label: 'Notes' },
-        ].map(({ to, icon: Icon, label, primary }) => (
+        ].map(({ to, icon: Icon, label, primary, state }) => (
           <Button
             key={to}
             asChild
             variant={primary ? 'default' : 'outline'}
             className={cn('h-auto py-3 flex-col gap-1.5', primary && 'shadow-sm')}
           >
-            <Link to={to}>
+            <Link to={to} state={state}>
               <Icon className="h-5 w-5" />
               <span className="text-xs font-medium">{label}</span>
             </Link>
           </Button>
         ))}
       </div>
+
+      {/* ── Budget burn rate ──────────────────────────────────── */}
+      {budgetStatus && budgetStatus.budget != null && (
+        <BudgetBurnRateCard status={budgetStatus} />
+      )}
+
+      {/* ── Who Pays Next ─────────────────────────────────────── */}
+      {balances?.whoPaysNext && (
+        <WhoPaysNextCard
+          balances={balances}
+          currency={trip.budgetCurrency}
+          currentUserId={currentUser?.id}
+        />
+      )}
 
       {/* ── Who Owes Whom ────────────────────────────────────── */}
       {balances?.simplifiedDebts && balances.simplifiedDebts.length > 0 && (

@@ -12,6 +12,7 @@ export const PLAN_LIMITS: Record<
     multiCurrency: boolean;
     allCharts: boolean;
     aiReceiptScanner: boolean;
+    aiReceiptItemization: boolean;
     aiCategorizer: boolean;
     aiBudgetAdvisor: boolean;
     aiSpendingInsights: boolean;
@@ -39,6 +40,7 @@ export const PLAN_LIMITS: Record<
     multiCurrency: false,
     allCharts: false,
     aiReceiptScanner: true,
+    aiReceiptItemization: false,
     aiCategorizer: true,
     aiBudgetAdvisor: true,
     aiSpendingInsights: true,
@@ -65,6 +67,7 @@ export const PLAN_LIMITS: Record<
     multiCurrency: true,
     allCharts: true,
     aiReceiptScanner: true,
+    aiReceiptItemization: true,
     aiCategorizer: true,
     aiBudgetAdvisor: false,
     aiSpendingInsights: false,
@@ -91,6 +94,7 @@ export const PLAN_LIMITS: Record<
     multiCurrency: true,
     allCharts: true,
     aiReceiptScanner: true,
+    aiReceiptItemization: true,
     aiCategorizer: true,
     aiBudgetAdvisor: true,
     aiSpendingInsights: true,

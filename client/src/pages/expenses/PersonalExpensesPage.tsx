@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
-  History, Trash2, Loader2, Pencil, Sparkles, Search, X, RepeatIcon,
+  History, Trash2, Loader2, Pencil, Sparkles, Search, X, RepeatIcon, TrendingUp, Download,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { Button } from '@/components/ui/button';
@@ -17,10 +17,14 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import EmptyState from '@/components/ui/EmptyState';
 import AIChatPanel from '@/components/ui/AIChatPanel';
 import { aiService } from '@/services/aiService';
+import { personalExpenseService } from '@/services/personalExpenseService';
 import {
   usePersonalExpenses,
   usePersonalExpense,
@@ -28,9 +32,12 @@ import {
   useDeletePersonalExpense,
   useRecurringExpenses,
   useCreatePersonalExpense,
+  usePersonalBudgetStatus,
 } from '@/hooks/usePersonalExpenses';
 import { isDueToday, getMonthlyEquivalent, FREQUENCY_LABELS } from '@/lib/recurring';
 import { useDebounce } from '@/hooks/useDebounce';
+import PersonalBudgetCard from '@/components/expenses/PersonalBudgetCard';
+import { useAnomalyStore, type AnomalyAlert } from '@/stores/anomalyStore';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
@@ -267,6 +274,10 @@ function TodayView({
   showBanner: boolean;
   onDismissBanner: () => void;
 }) {
+  const { data: budgetStatus } = usePersonalBudgetStatus();
+  const anomaly = useAnomalyStore((s) => s.anomaly);
+  const clearAnomaly = useAnomalyStore((s) => s.clearAnomaly);
+
   // One query covers today AND the previous 7 days (the "Recent" list below),
   // instead of two separate components each firing their own request. That
   // used to mean every settled search fired 2 API calls at once — this way
@@ -314,6 +325,12 @@ function TodayView({
       <AnimatePresence>
         {showBanner && <DueTodayBanner onDismiss={onDismissBanner} />}
       </AnimatePresence>
+
+      <AnimatePresence>
+        {anomaly && <AnomalyBanner anomaly={anomaly} onDismiss={clearAnomaly} />}
+      </AnimatePresence>
+
+      {budgetStatus && <PersonalBudgetCard status={budgetStatus} />}
 
       {/* Summary stat cards */}
       <div className="grid grid-cols-2 gap-3">
@@ -497,6 +514,29 @@ function PastExpensesView({
 
   return (
     <div className="space-y-4">
+      <div className="flex justify-end">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Download className="h-3.5 w-3.5 mr-1.5" />
+              Export
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem
+              onClick={() => personalExpenseService.exportCSV({ category: category !== 'ALL' ? category : undefined })}
+            >
+              Export as CSV
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => personalExpenseService.exportPDF({ category: category !== 'ALL' ? category : undefined })}
+            >
+              Export as PDF
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       {grouped.map(([day, items]) => (
         <div key={day}>
           <div className="flex items-center justify-between mb-1 px-1">
@@ -835,6 +875,33 @@ function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
+// ── Anomaly Banner ────────────────────────────────────────────────────────────
+
+function AnomalyBanner({ anomaly, onDismiss }: { anomaly: AnomalyAlert; onDismiss: () => void }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -8 }}
+    >
+      <Card className="border-primary/40 bg-primary/5">
+        <CardContent className="p-3 flex items-center gap-3">
+          <TrendingUp className="h-4 w-4 text-primary shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold leading-tight">
+              {anomaly.title} — {formatMoney(anomaly.amount, anomaly.currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">{anomaly.reason}</p>
+          </div>
+          <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={onDismiss} aria-label="Dismiss">
+            <X className="h-4 w-4" />
+          </Button>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
 // ── Recurring Tab ─────────────────────────────────────────────────────────────
 
 function RecurringTab({
@@ -1008,21 +1075,23 @@ export default function PersonalExpensesPage() {
       </div>
 
       {/* Tab toggle */}
-      <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-        {TABS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setView(id)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-              view === id
-                ? 'bg-background shadow-sm text-foreground'
-                : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Icon className="h-3.5 w-3.5" /> {label}
-          </button>
-        ))}
+      <div className="overflow-x-auto -mx-4 px-4">
+        <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setView(id)}
+              className={cn(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
+                view === id
+                  ? 'bg-background shadow-sm text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search — only meaningful for Today and History, which fetch from the

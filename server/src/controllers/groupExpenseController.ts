@@ -3,6 +3,7 @@ import { prisma } from '../config/database';
 import { asyncHandler, AppError } from '../utils';
 import { convertCurrency } from '../services/currencyService';
 import { logActivity } from '../services/auditService';
+import { refreshSettlementPlan } from '../services/settlementPlanService';
 import { io } from '../index';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -205,6 +206,8 @@ export const createGroupExpense = asyncHandler(async (req: Request, res: Respons
 
   io.to(`group:${groupId}`).emit('group-expense:created', { expense, groupId });
 
+  await refreshSettlementPlan({ groupId });
+
   res.status(201).json({ success: true, data: expense });
 });
 
@@ -333,6 +336,8 @@ export const updateGroupExpense = asyncHandler(async (req: Request, res: Respons
 
   io.to(`group:${groupId}`).emit('group-expense:updated', { expense: updated, groupId });
 
+  await refreshSettlementPlan({ groupId });
+
   res.json({ success: true, data: updated });
 });
 
@@ -361,6 +366,8 @@ export const deleteGroupExpense = asyncHandler(async (req: Request, res: Respons
   });
 
   io.to(`group:${groupId}`).emit('group-expense:deleted', { expenseId: id, groupId });
+
+  await refreshSettlementPlan({ groupId });
 
   res.json({ success: true, message: 'Expense deleted' });
 });

@@ -232,6 +232,9 @@ export const getMe = asyncHandler(async (req: Request, res: Response) => {
       name: user.name,
       avatarUrl: user.avatarUrl,
       preferredCurrency: user.preferredCurrency,
+      monthlyBudget: user.monthlyBudget,
+      monthlyBudgetCurrency: user.monthlyBudgetCurrency,
+      upiId: user.upiId,
       onboardingDone: user.onboardingDone,
       // Map DB field names → client User type field names
       emailNotifications: user.notifyEmail,
@@ -259,7 +262,10 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
   const { emailNotifications, pushNotifications, weeklyReport, ...rest } = req.body as {
     name?: string;
     preferredCurrency?: string;
+    monthlyBudget?: number | null;
+    monthlyBudgetCurrency?: string;
     avatarUrl?: string;
+    upiId?: string | null;
     emailNotifications?: boolean;
     pushNotifications?: boolean;
     weeklyReport?: boolean;
@@ -283,6 +289,9 @@ export const updateProfile = asyncHandler(async (req: Request, res: Response) =>
       name: updated.name,
       avatarUrl: updated.avatarUrl,
       preferredCurrency: updated.preferredCurrency,
+      monthlyBudget: updated.monthlyBudget,
+      monthlyBudgetCurrency: updated.monthlyBudgetCurrency,
+      upiId: updated.upiId,
       onboardingDone: updated.onboardingDone,
       emailNotifications: updated.notifyEmail,
       pushNotifications: updated.notifyPush,

@@ -60,3 +60,11 @@ export function useSyncTripStatuses() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['trips'] }),
   });
 }
+
+export function useBudgetStatus(tripId: string) {
+  return useQuery({
+    queryKey: ['trips', tripId, 'budget-status'],
+    queryFn: () => tripService.getBudgetStatus(tripId),
+    enabled: !!tripId,
+  });
+}

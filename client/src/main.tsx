@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ClerkProvider } from '@clerk/clerk-react';
 import { SocketProvider } from '@/contexts/SocketContext';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import './index.css';
@@ -36,7 +37,9 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <SocketProvider>
-            <App />
+            <TooltipProvider>
+              <App />
+            </TooltipProvider>
           </SocketProvider>
         </BrowserRouter>
       </QueryClientProvider>

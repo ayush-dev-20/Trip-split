@@ -132,6 +132,120 @@ Return ONLY valid JSON, no markdown.`,
   }
 }
 
+export interface ReceiptItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  isAdjustment?: boolean;
+}
+
+export interface RawItemizedReceipt {
+  vendor?: string;
+  date?: string | null;
+  currency?: string;
+  category?: string;
+  items?: Partial<ReceiptItem>[];
+  subtotal?: number;
+  tax?: number;
+  serviceCharge?: number;
+  total?: number;
+}
+
+export interface ItemizedReceipt {
+  vendor: string;
+  date: string | null;
+  currency: string;
+  category: string;
+  items: ReceiptItem[];
+  subtotal: number;
+  tax: number;
+  serviceCharge: number;
+  total: number;
+  reconciled: boolean;
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Never trust model arithmetic: force items to sum to subtotal (adjustment
+ * line for any gap) and total to equal subtotal + tax + serviceCharge.
+ */
+export function reconcileReceipt(parsed: RawItemizedReceipt): ItemizedReceipt {
+  const items: ReceiptItem[] = (parsed.items ?? [])
+    .filter((i) => i && typeof i.totalPrice === 'number' && (i.totalPrice as number) > 0)
+    .map((i) => ({
+      name: i.name || 'Item',
+      quantity: i.quantity && i.quantity > 0 ? i.quantity : 1,
+      unitPrice: round2(i.unitPrice ?? (i.totalPrice as number)),
+      totalPrice: round2(i.totalPrice as number),
+    }));
+
+  const tax = round2(parsed.tax ?? 0);
+  const serviceCharge = round2(parsed.serviceCharge ?? 0);
+  const itemsSum = round2(items.reduce((s, i) => s + i.totalPrice, 0));
+  const subtotal = round2(parsed.subtotal ?? itemsSum);
+
+  let reconciled = false;
+
+  const gap = round2(subtotal - itemsSum);
+  if (Math.abs(gap) > Math.max(0.005 * subtotal, 0.01)) {
+    items.push({ name: 'Adjustment', quantity: 1, unitPrice: gap, totalPrice: gap, isAdjustment: true });
+    reconciled = true;
+  }
+
+  const computedTotal = round2(subtotal + tax + serviceCharge);
+  let total = round2(parsed.total ?? computedTotal);
+  if (Math.abs(total - computedTotal) > 0.01) {
+    total = computedTotal;
+    reconciled = true;
+  }
+
+  return {
+    vendor: parsed.vendor || 'Receipt',
+    date: parsed.date ?? null,
+    currency: parsed.currency || 'USD',
+    category: parsed.category || 'FOOD',
+    items,
+    subtotal,
+    tax,
+    serviceCharge,
+    total,
+    reconciled,
+  };
+}
+
+/**
+ * AI Receipt Itemizer — extracts line items from a receipt image.
+ */
+export async function scanReceiptItemized(imageBase64: string, mimeType: string): Promise<ItemizedReceipt> {
+  try {
+    const model = getModel();
+    const result = await model.generateContent([
+      { inlineData: { data: imageBase64, mimeType: mimeType as 'image/jpeg' | 'image/png' | 'image/webp' } },
+      {
+        text: `You are a receipt line-item extractor. Extract data from this receipt image and return JSON with:
+- vendor: string (store/restaurant name)
+- date: string (YYYY-MM-DD) or null
+- currency: string (3-letter code, e.g. "INR", "USD")
+- category: one of FOOD, GROCERIES, TRANSPORT, ACCOMMODATION, ACTIVITIES, SHOPPING, ENTERTAINMENT, HEALTH, COMMUNICATION, FEES, MISCELLANEOUS
+- items: array of { name: string, quantity: number, unitPrice: number, totalPrice: number } — one entry per line item, totalPrice = quantity × unitPrice
+- subtotal: number (sum of item totals, before tax/charges)
+- tax: number (all taxes combined; 0 if none shown)
+- serviceCharge: number (service charge/tip printed on the bill; 0 if none)
+- total: number (final payable amount)
+Return ONLY valid JSON, no markdown.`,
+      },
+    ]);
+    const text = result.response.text();
+    const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+    return reconcileReceipt(JSON.parse(cleaned) as RawItemizedReceipt);
+  } catch (err) {
+    logger.error('AIService', 'Itemized receipt scan error', { error: String(err) });
+    return reconcileReceipt({ items: [], subtotal: 0, total: 0 });
+  }
+}
+
 /**
  * AI Expense Categorizer — Given an expense title, suggest a category.
  */

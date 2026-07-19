@@ -3,13 +3,14 @@ import { useUpdateProfile } from '@/hooks/useAuth';
 import { useClerk } from '@clerk/clerk-react';
 import { useState } from 'react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { User, Mail, Bell, Shield, CreditCard, Loader2, Sparkles } from 'lucide-react';
+import { User, Mail, Bell, Shield, CreditCard, Loader2, Sparkles, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -18,6 +19,8 @@ import PageHeader from '@/components/ui/PageHeader';
 import SectionHeading from '@/components/ui/SectionHeading';
 import UserAvatar from '@/components/ui/UserAvatar';
 
+const UPI_REGEX = /^[\w.\-]{2,256}@[a-zA-Z]{2,64}$/;
+
 export default function SettingsPage() {
   const user = useAuthStore((s) => s.user);
   const updateProfile = useUpdateProfile();
@@ -25,13 +28,29 @@ export default function SettingsPage() {
 
   const [name, setName] = useState(user?.name ?? '');
   const [currency, setCurrency] = useState(user?.preferredCurrency ?? 'USD');
+  const [upiId, setUpiId] = useState(user?.upiId ?? '');
+  const [monthlyBudget, setMonthlyBudget] = useState(user?.monthlyBudget?.toString() ?? '');
+  const [budgetCurrency, setBudgetCurrency] = useState(user?.monthlyBudgetCurrency ?? user?.preferredCurrency ?? 'USD');
   const [emailNotif, setEmailNotif] = useState(user?.emailNotifications ?? true);
   const [pushNotif, setPushNotif] = useState(user?.pushNotifications ?? true);
   const [weeklyReport, setWeeklyReport] = useState(user?.weeklyReport ?? true);
 
+  const isUpiInvalid = upiId.trim().length > 0 && !UPI_REGEX.test(upiId.trim());
+
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    updateProfile.mutate({ name, preferredCurrency: currency, emailNotifications: emailNotif, pushNotifications: pushNotif, weeklyReport });
+    if (isUpiInvalid) return;
+    const parsedBudget = monthlyBudget.trim() ? Number(monthlyBudget) : null;
+    updateProfile.mutate({
+      name,
+      preferredCurrency: currency,
+      monthlyBudget: parsedBudget && parsedBudget > 0 ? parsedBudget : null,
+      monthlyBudgetCurrency: budgetCurrency,
+      upiId: upiId.trim() || null,
+      emailNotifications: emailNotif,
+      pushNotifications: pushNotif,
+      weeklyReport,
+    });
   };
 
   const tier = user?.tier ?? 'FREE';
@@ -109,7 +128,57 @@ export default function SettingsPage() {
               </Select>
             </div>
 
-            <Button type="submit" disabled={updateProfile.isPending}>
+            <div className="space-y-2">
+              <Label htmlFor="monthlyBudget" className="flex items-center gap-2">
+                <Wallet className="h-3.5 w-3.5" /> Monthly Budget
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="monthlyBudget"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={monthlyBudget}
+                  onChange={(e) => setMonthlyBudget(e.target.value)}
+                  placeholder="e.g. 30000"
+                  className="h-10 flex-1"
+                />
+                <Select value={budgetCurrency} onValueChange={setBudgetCurrency}>
+                  <SelectTrigger className="h-10 w-24">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {['INR', 'USD', 'EUR', 'GBP', 'JPY', 'AUD', 'CAD', 'CHF', 'SGD', 'THB'].map((c) => (
+                      <SelectItem key={c} value={c}>{c}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Track spending against a monthly limit on the Daily Expense tab. Leave blank to disable.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="upiId" className="flex items-center gap-2">
+                <Wallet className="h-3.5 w-3.5" /> UPI ID
+              </Label>
+              <Input
+                id="upiId"
+                value={upiId}
+                onChange={(e) => setUpiId(e.target.value)}
+                placeholder="yourname@bank"
+                className={cn('h-10', isUpiInvalid && 'border-destructive focus-visible:ring-destructive')}
+              />
+              {isUpiInvalid && (
+                <p className="text-xs text-destructive">Invalid UPI ID (e.g. name@bank)</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Lets friends pay you directly from settlements. Leave blank to disable.
+              </p>
+            </div>
+
+            <Button type="submit" disabled={updateProfile.isPending || isUpiInvalid}>
               {updateProfile.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {updateProfile.isPending ? 'Saving…' : 'Save Changes'}
             </Button>

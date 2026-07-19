@@ -1,5 +1,5 @@
 import api from './api';
-import type { Trip, TripStatus } from '@/types';
+import type { BudgetStatus, Trip, TripStatus } from '@/types';
 
 interface GetTripsParams {
   page?: number;
@@ -50,4 +50,7 @@ export const tripService = {
 
   syncStatuses: () =>
     api.post<{ success: boolean; data: { updated: number } }>('/trips/sync-statuses').then((r) => r.data.data),
+
+  getBudgetStatus: (id: string) =>
+    api.get<{ success: boolean; data: BudgetStatus }>(`/trips/${id}/budget-status`).then((r) => r.data.data),
 };

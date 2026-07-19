@@ -1,5 +1,5 @@
 import api from './api';
-import type { Expense, ExpenseCategory, SplitType } from '@/types';
+import type { Expense, ExpenseCategory, ExpenseItem, SplitType } from '@/types';
 
 interface GetExpensesParams {
   page?: number;
@@ -13,6 +13,8 @@ interface GetExpensesParams {
 interface SplitItem {
   userId: string;
   amount?: number;
+  /** Per-user fair share for itemized (EXACT split) expenses; distinct from `amount` (contribution). */
+  owedAmount?: number;
   percentage?: number;
   shares?: number;
 }
@@ -27,6 +29,8 @@ export interface CreateExpensePayload {
   date: string;
   splitType: SplitType;
   splits?: SplitItem[];
+  /** Itemized receipt line items with per-item claimant assignment (from ItemizedSplitEditor). */
+  items?: ExpenseItem[];
   /** Required by server */
   tripId: string;
   /** Required by server — the user who paid */

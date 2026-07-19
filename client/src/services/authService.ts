@@ -9,7 +9,7 @@ export const authService = {
   // Update profile fields stored in our DB
   updateProfile: (
     data: Partial<
-      Pick<User, 'name' | 'preferredCurrency' | 'avatarUrl' | 'emailNotifications' | 'pushNotifications' | 'weeklyReport'>
+      Pick<User, 'name' | 'preferredCurrency' | 'monthlyBudget' | 'monthlyBudgetCurrency' | 'upiId' | 'avatarUrl' | 'emailNotifications' | 'pushNotifications' | 'weeklyReport'>
     >
   ) =>
     api.put<{ success: boolean; data: User }>('/auth/profile', data).then((r) => r.data.data),

@@ -5,6 +5,7 @@ import { PLAN_LIMITS } from '../config/plans';
 import { asyncHandler, AppError, generateInviteCode, paginate, paginationMeta } from '../utils';
 import { logActivity, logAudit } from '../services/auditService';
 import { notifyUsers } from '../services/notificationService';
+import { computeBudgetStatus } from '../services/budgetService';
 
 /**
  * POST /api/trips
@@ -450,4 +451,62 @@ export const joinTripByCode = asyncHandler(async (req: Request, res: Response) =
   });
 
   res.json({ success: true, data: trip });
+});
+
+/**
+ * GET /api/trips/:id/budget-status
+ * Burn-rate view of the trip budget. byCategory only for advancedAnalytics tiers.
+ */
+export const getBudgetStatus = asyncHandler(async (req: Request, res: Response) => {
+  const tripId = req.params.id as string;
+  const userId = req.user!.id as string;
+
+  const membership = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+  if (!membership) throw AppError.forbidden('You are not a member of this trip');
+
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { budget: true, budgetCurrency: true, startDate: true, endDate: true },
+  });
+  if (!trip) throw AppError.notFound('Trip not found');
+
+  const spentAgg = await prisma.expense.aggregate({
+    where: { tripId },
+    _sum: { baseAmount: true },
+  });
+  const totalSpent = spentAgg._sum.baseAmount ?? 0;
+
+  const status = computeBudgetStatus({
+    budget: trip.budget,
+    totalSpent,
+    startDate: trip.startDate,
+    endDate: trip.endDate,
+  });
+
+  if (!('tripDays' in status)) {
+    res.json({ success: true, data: { budget: null } });
+    return;
+  }
+
+  const tier = (req.user!.tier as SubscriptionTier) || 'FREE';
+  let byCategory: { category: string; spent: number; share: number }[] | undefined;
+  if (PLAN_LIMITS[tier].advancedAnalytics && totalSpent > 0) {
+    const grouped = await prisma.expense.groupBy({
+      by: ['category'],
+      where: { tripId },
+      _sum: { baseAmount: true },
+    });
+    byCategory = grouped
+      .map((g) => ({
+        category: g.category,
+        spent: g._sum.baseAmount ?? 0,
+        share: Math.round(((g._sum.baseAmount ?? 0) / totalSpent) * 1000) / 10,
+      }))
+      .sort((a, b) => b.spent - a.spent);
+  }
+
+  res.json({
+    success: true,
+    data: { ...status, currency: trip.budgetCurrency, ...(byCategory ? { byCategory } : {}) },
+  });
 });

@@ -43,6 +43,9 @@ export interface User {
   name: string;
   avatarUrl?: string;
   preferredCurrency: string;
+  monthlyBudget?: number | null;
+  monthlyBudgetCurrency?: string | null;
+  upiId?: string | null;
   tier: SubscriptionTier;
   onboardingDone: boolean;
   emailNotifications: boolean;
@@ -125,6 +128,7 @@ export interface Expense {
   paidBy?: User;
   trip?: Trip;
   splits?: ExpenseSplit[];
+  items?: ExpenseItem[];
   receipts?: Receipt[];
   comments?: Comment[];
   reactions?: Reaction[];
@@ -137,6 +141,7 @@ export interface ExpenseSplit {
   expenseId: string;
   userId: string;
   amount: number;
+  owedAmount?: number;
   percentage?: number;
   shares?: number;
   user?: User;
@@ -377,6 +382,33 @@ export interface ReceiptScanResult {
   description: string;
 }
 
+// ─── Itemized Receipt Types ──────────────────────────────
+export interface ReceiptItem {
+  name: string;
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  isAdjustment?: boolean;
+}
+
+export interface ItemizedReceipt {
+  vendor: string;
+  date: string | null;
+  currency: string;
+  category: string;
+  items: ReceiptItem[];
+  subtotal: number;
+  tax: number;
+  serviceCharge: number;
+  total: number;
+  /** true = server adjusted the model's arithmetic to make items add up to the total */
+  reconciled: boolean;
+}
+
+export interface ExpenseItem extends ReceiptItem {
+  assignedTo?: string[]; // user ids; empty/absent = shared by all members
+}
+
 export interface TripPlan {
   itinerary: string;
 }
@@ -419,14 +451,29 @@ export interface NLPExpenseResult {
 
 // ─── Settlement/Balance Types ────────────────────────────
 export interface Balance {
-  user: { id: string; name: string; avatarUrl?: string };
+  user: { id: string; name: string; avatarUrl?: string; upiId?: string | null };
   amount: number;
 }
 
 export interface SimplifiedDebt {
-  from: { id: string; name: string };
-  to: { id: string; name: string };
+  from: { id: string; name: string; upiId?: string | null };
+  to: { id: string; name: string; upiId?: string | null };
   amount: number;
+}
+
+export interface BudgetStatus {
+  budget: number | null;
+  currency?: string;
+  totalSpent?: number;
+  remaining?: number;
+  tripDays?: number;
+  daysElapsed?: number;
+  daysRemaining?: number;
+  spentPerDay?: number;
+  safePerDay?: number;
+  projectedTotal?: number;
+  pace?: 'UNDER' | 'ON_TRACK' | 'OVER';
+  byCategory?: { category: string; spent: number; share: number }[];
 }
 
 export interface TripBalances {
@@ -435,10 +482,16 @@ export interface TripBalances {
   totalExpenses: number;
   totalSettled: number;
   currency: string;
+  whoPaysNext: {
+    user: { id: string; name: string; avatarUrl?: string; upiId?: string | null };
+    amount: number;
+  } | null;
 }
 
+export type ScopeBalances = TripBalances;
+
 export interface OverallDebtEntry {
-  user: { id: string; name: string; avatarUrl?: string };
+  user: { id: string; name: string; avatarUrl?: string; upiId?: string | null };
   amount: number;
   trips: { id: string; name: string }[];
 }
@@ -488,6 +541,20 @@ export interface PersonalExpenseCalendarDay {
 }
 
 export type RecurringFrequency = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export interface PersonalBudgetStatus {
+  budget: number | null;
+  currency?: string;
+  totalSpent?: number;
+  remaining?: number;
+  daysInMonth?: number;
+  daysElapsed?: number;
+  daysRemaining?: number;
+  spentPerDay?: number;
+  safePerDay?: number;
+  projectedTotal?: number;
+  pace?: 'UNDER' | 'ON_TRACK' | 'OVER';
+}
 
 export type PersonalAnalyticsPeriod = 'week' | 'month' | 'quarter' | 'year' | 'custom';
 

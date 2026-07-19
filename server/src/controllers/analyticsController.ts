@@ -208,7 +208,7 @@ export const getTripAnalytics = asyncHandler(async (req: Request, res: Response)
       paidById: e.paidById,
       splitType: e.splitType,
       baseAmount: e.baseAmount,
-      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount })),
+      splits: e.splits.map((s: any) => ({ userId: s.userId, amount: s.amount, owedAmount: s.owedAmount })),
     }))
   );
   const simplifiedDebts = simplifyDebts(netBalances);

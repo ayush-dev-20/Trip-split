@@ -3,6 +3,8 @@ import { personalExpenseService } from '@/services/personalExpenseService';
 import type { CreatePersonalExpensePayload, PersonalAnalyticsPeriod } from '@/types';
 import { getNextDueDate } from '@/lib/recurring';
 import type { RecurringFrequency } from '@/types';
+import { aiService } from '@/services/aiService';
+import { useAnomalyStore } from '@/stores/anomalyStore';
 
 export function usePersonalExpenses(params?: {
   startDate?: string;
@@ -52,14 +54,39 @@ export function useRecurringExpenses() {
   });
 }
 
+export function usePersonalBudgetStatus() {
+  return useQuery({
+    queryKey: ['personal-expenses', 'budget-status'],
+    queryFn: () => personalExpenseService.getBudgetStatus(),
+    staleTime: 60_000,
+  });
+}
+
 export function useCreatePersonalExpense() {
   const qc = useQueryClient();
+  const setAnomaly = useAnomalyStore((s) => s.setAnomaly);
   return useMutation({
     mutationFn: (data: CreatePersonalExpensePayload) => personalExpenseService.create(data),
-    onSuccess: () => {
+    onSuccess: (expense) => {
       qc.invalidateQueries({ queryKey: ['personal-expenses'] });
       qc.invalidateQueries({ queryKey: ['personal-expenses-calendar'] });
       qc.invalidateQueries({ queryKey: ['personal-analytics'] });
+      qc.invalidateQueries({ queryKey: ['personal-expenses', 'budget-status'] });
+
+      aiService
+        .detectAnomaly({ title: expense.title, amount: expense.baseAmount, category: expense.category })
+        .then((result) => {
+          if (result.isAnomaly && result.reason) {
+            setAnomaly({
+              expenseId: expense.id,
+              title: expense.title,
+              amount: expense.amount,
+              currency: expense.currency,
+              reason: result.reason,
+            });
+          }
+        })
+        .catch(() => {}); // best-effort — never block or surface an error for this enrichment call
     },
   });
 }
@@ -73,6 +100,7 @@ export function useUpdatePersonalExpense(id: string) {
       qc.invalidateQueries({ queryKey: ['personal-expenses-calendar'] });
       qc.invalidateQueries({ queryKey: ['personal-analytics'] });
       qc.invalidateQueries({ queryKey: ['personal-expenses', 'recurring'] });
+      qc.invalidateQueries({ queryKey: ['personal-expenses', 'budget-status'] });
     },
   });
 }
@@ -86,6 +114,7 @@ export function useDeletePersonalExpense() {
       qc.invalidateQueries({ queryKey: ['personal-expenses-calendar'] });
       qc.invalidateQueries({ queryKey: ['personal-analytics'] });
       qc.invalidateQueries({ queryKey: ['personal-expenses', 'recurring'] });
+      qc.invalidateQueries({ queryKey: ['personal-expenses', 'budget-status'] });
     },
   });
 }

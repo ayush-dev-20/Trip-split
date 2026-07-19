@@ -1,6 +1,6 @@
 import api from './api';
 import { getClerkToken } from '@/lib/clerkHelper';
-import type { ReceiptScanResult, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint } from '@/types';
+import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint } from '@/types';
 
 /**
  * Low-level SSE helper — POSTs to `url`, then async-iterates the event stream.
@@ -46,6 +46,16 @@ export const aiService = {
     formData.append('receipt', file);
     return api
       .post<{ success: boolean; data: ReceiptScanResult }>('/ai/scan-receipt', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      })
+      .then((r) => r.data.data);
+  },
+
+  scanReceiptItems: (file: File) => {
+    const formData = new FormData();
+    formData.append('receipt', file);
+    return api
+      .post<{ success: boolean; data: ItemizedReceipt }>('/ai/scan-receipt-items', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       })
       .then((r) => r.data.data);
@@ -115,4 +125,12 @@ export const aiService = {
 
   chatbotGroup: (groupId: string, message: string) =>
     api.post<{ success: boolean; data: { answer: string } }>('/ai/chat-group', { groupId, message }).then((r) => r.data.data.answer),
+
+  detectAnomaly: (params: { title: string; amount: number; category: string }) =>
+    api
+      .post<{ success: boolean; data: { isAnomaly: boolean; reason: string | null; severity: 'low' | 'medium' | 'high' } }>(
+        '/ai/detect-anomaly',
+        params
+      )
+      .then((r) => r.data.data),
 };

@@ -1,11 +1,11 @@
 import { roundCurrency } from '../utils/helpers';
 
-interface Balance {
+export interface Balance {
   userId: string;
   amount: number; // positive = is owed, negative = owes
 }
 
-interface Debt {
+export interface Debt {
   from: string;
   to: string;
   amount: number;
@@ -91,7 +91,7 @@ export function calculateNetBalances(
     paidById: string;
     splitType: string;
     baseAmount: number;
-    splits: { userId: string; amount: number }[];
+    splits: { userId: string; amount: number; owedAmount?: number | null }[];
   }[]
 ): Balance[] {
   const balanceMap = new Map<string, number>();
@@ -113,9 +113,12 @@ export function calculateNetBalances(
         contributed = split.amount;
       }
 
+      // Fair share = per-split owedAmount override (itemization), else equal split.
+      const share = split.owedAmount ?? fairShare;
+
       // Net balance change = what they paid − their fair share
       const current = balanceMap.get(split.userId) || 0;
-      balanceMap.set(split.userId, current + contributed - fairShare);
+      balanceMap.set(split.userId, current + contributed - share);
     }
   }
 
@@ -128,6 +131,78 @@ export function calculateNetBalances(
 /**
  * Calculate pairwise debts (who owes whom and how much).
  */
+export interface SheetExpense {
+  paidById: string;
+  splitType: string;
+  baseAmount: number;
+  splits: { userId: string; amount: number; owedAmount?: number | null }[];
+}
+
+export interface SheetSettlement {
+  fromUserId: string;
+  toUserId: string;
+  amount: number;
+}
+
+/**
+ * Net balances + simplified debts for a set of expenses, after applying
+ * settled repayments (fromUser paid toUser → from's balance rises, to's falls).
+ */
+export function buildBalanceSheet(
+  expenses: SheetExpense[],
+  settledSettlements: SheetSettlement[]
+): { netBalances: Balance[]; simplifiedDebts: Debt[] } {
+  const netBalances = calculateNetBalances(expenses);
+  const byUser = new Map(netBalances.map((b) => [b.userId, b]));
+
+  for (const s of settledSettlements) {
+    const from = byUser.get(s.fromUserId);
+    const to = byUser.get(s.toUserId);
+    if (from) from.amount = roundCurrency(from.amount + s.amount);
+    if (to) to.amount = roundCurrency(to.amount - s.amount);
+  }
+
+  return { netBalances, simplifiedDebts: simplifyDebts(netBalances) };
+}
+
+/**
+ * Scale per-split owedAmount (fair share, entered in expense currency) into the
+ * trip's base currency, then reconcile rounding drift against baseAmount.
+ *
+ * Each owedAmount is independently rounded via `roundCurrency(owed * exchangeRate)`,
+ * so Σ(scaled owed) can differ from baseAmount by a few cents (baseAmount is rounded
+ * separately via convertCurrency). Any such drift is added to the LARGEST scaled
+ * owedAmount so the map sums to baseAmount exactly (to 2dp).
+ */
+export function scaleOwedAmounts(
+  owedSplits: { userId: string; owedAmount: number }[],
+  exchangeRate: number,
+  baseAmount: number
+): Map<string, number> {
+  const scaled = new Map<string, number>(
+    owedSplits.map((s) => [s.userId, roundCurrency(s.owedAmount * exchangeRate)])
+  );
+
+  const sumScaled = roundCurrency(
+    Array.from(scaled.values()).reduce((sum, v) => sum + v, 0)
+  );
+  const drift = roundCurrency(baseAmount - sumScaled);
+
+  if (Math.abs(drift) >= 0.01 && scaled.size > 0) {
+    let largestUserId = owedSplits[0]!.userId;
+    let largestValue = -Infinity;
+    for (const [userId, value] of scaled) {
+      if (value > largestValue) {
+        largestValue = value;
+        largestUserId = userId;
+      }
+    }
+    scaled.set(largestUserId, roundCurrency(largestValue + drift));
+  }
+
+  return scaled;
+}
+
 export function calculatePairwiseDebts(
   expenses: {
     paidById: string;

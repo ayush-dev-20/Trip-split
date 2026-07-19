@@ -1,5 +1,5 @@
 import { useParams } from 'react-router';
-import { useBalances, useSettlements, useSettleDebt, useCreateSettlement } from '@/hooks/useSettlements';
+import { useBalances, useSettlements, useSettleDebt, useCreateSettlement, useSettlePlan } from '@/hooks/useSettlements';
 import { useTrip } from '@/hooks/useTrips';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
@@ -17,10 +17,11 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import UpiPayButton from '@/components/settlements/UpiPayButton';
 
 export default function SettlementsPage() {
   const { tripId } = useParams<{ tripId: string }>();
@@ -30,6 +31,7 @@ export default function SettlementsPage() {
   const { data: settlements, isLoading: setLoading } = useSettlements(tripId!);
   const settle = useSettleDebt(tripId!);
   const createSettlement = useCreateSettlement(tripId!);
+  const settlePlan = useSettlePlan({ tripId });
 
   const [settleDialog, setSettleDialog] = useState<{
     open: boolean;
@@ -38,6 +40,15 @@ export default function SettlementsPage() {
     amount: number;
   } | null>(null);
   const [settleNote, setSettleNote] = useState('');
+  const [planConfirmOpen, setPlanConfirmOpen] = useState(false);
+  const [markSettledDialog, setMarkSettledDialog] = useState<{
+    settlementId: string;
+    fromName?: string;
+    toName?: string;
+    amount: number;
+  } | null>(null);
+  const [markSettledAmount, setMarkSettledAmount] = useState('');
+  const [markSettledError, setMarkSettledError] = useState('');
 
   if (balLoading || setLoading) return <PageLoader />;
 
@@ -57,6 +68,45 @@ export default function SettlementsPage() {
         onSuccess: () => {
           setSettleDialog(null);
           setSettleNote('');
+        },
+      }
+    );
+  };
+
+  const handleRecordPlan = () => {
+    settlePlan.mutate(undefined, { onSuccess: () => setPlanConfirmOpen(false) });
+  };
+
+  const openMarkSettled = (s: {
+    id: string;
+    amount: number;
+    fromUser?: { name: string } | null;
+    toUser?: { name: string } | null;
+  }) => {
+    setMarkSettledDialog({
+      settlementId: s.id,
+      fromName: s.fromUser?.name,
+      toName: s.toUser?.name,
+      amount: s.amount,
+    });
+    setMarkSettledAmount(String(s.amount));
+    setMarkSettledError('');
+  };
+
+  const handleConfirmMarkSettled = () => {
+    if (!markSettledDialog) return;
+    const amount = Number(markSettledAmount);
+    if (!markSettledAmount || Number.isNaN(amount) || amount <= 0) {
+      setMarkSettledError('Enter an amount greater than 0.');
+      return;
+    }
+    settle.mutate(
+      { settlementId: markSettledDialog.settlementId, amount },
+      {
+        onSuccess: () => {
+          setMarkSettledDialog(null);
+          setMarkSettledAmount('');
+          setMarkSettledError('');
         },
       }
     );
@@ -118,6 +168,12 @@ export default function SettlementsPage() {
           <SectionHeading
             title="Who Owes Whom"
             description="Simplified to fewest transactions"
+            action={
+              <Button size="sm" variant="outline" onClick={() => setPlanConfirmOpen(true)}>
+                <HandCoins className="h-3.5 w-3.5" />
+                Record settlement plan
+              </Button>
+            }
           />
           <div className="space-y-2">
             {balances.simplifiedDebts.map((d, i) => {
@@ -148,6 +204,20 @@ export default function SettlementsPage() {
                         <span className="font-semibold text-base tabular-nums shrink-0">
                           {formatMoney(d.amount, currency)}
                         </span>
+                        {isMyDebt && (
+                          <UpiPayButton
+                            payee={d.to}
+                            amount={d.amount}
+                            currency={currency}
+                            contextName={trip?.name ?? 'TripSplit'}
+                            onRecorded={() => setSettleDialog({
+                              open: true,
+                              from: d.from,
+                              to: d.to,
+                              amount: d.amount,
+                            })}
+                          />
+                        )}
                         <Button
                           size="sm"
                           variant={isMyDebt ? 'default' : 'outline'}
@@ -251,13 +321,20 @@ export default function SettlementsPage() {
                         {s.status}
                       </Badge>
                     </div>
+                    {s.status === 'PENDING' && s.fromUser?.id === currentUser?.id && s.toUser && (
+                      <UpiPayButton
+                        payee={s.toUser}
+                        amount={s.amount}
+                        currency={s.currency}
+                        contextName={trip?.name ?? 'TripSplit'}
+                      />
+                    )}
                     {s.status === 'PENDING' && (
                       <Button
                         size="sm"
-                        onClick={() => settle.mutate(s.id)}
+                        onClick={() => openMarkSettled(s)}
                         disabled={settle.isPending}
                       >
-                        {settle.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                         Mark Settled
                       </Button>
                     )}
@@ -315,6 +392,100 @@ export default function SettlementsPage() {
                 <Button className="flex-1" onClick={handleInitiateSettlement} disabled={createSettlement.isPending}>
                   {createSettlement.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   {createSettlement.isPending ? 'Recording…' : 'Record Payment'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Settlement Plan Dialog */}
+      <Dialog open={planConfirmOpen} onOpenChange={setPlanConfirmOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Record Settlement Plan</DialogTitle>
+            <DialogDescription>
+              This will create {balances?.simplifiedDebts.length ?? 0} payment request
+              {(balances?.simplifiedDebts.length ?? 0) !== 1 ? 's' : ''}. Existing pending requests will be
+              replaced and members notified.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 pt-1">
+            {balances?.simplifiedDebts.map((d, i) => (
+              <div key={i} className="flex items-center justify-between text-sm px-1">
+                <span className="truncate">
+                  <span className="font-medium">{d.from.name}</span>
+                  <span className="text-muted-foreground"> pays </span>
+                  <span className="font-medium">{d.to.name}</span>
+                </span>
+                <span className="tabular-nums font-semibold shrink-0 ml-2">{formatMoney(d.amount, currency)}</span>
+              </div>
+            ))}
+          </div>
+          <DialogFooter className="pt-2">
+            <Button variant="outline" onClick={() => setPlanConfirmOpen(false)}>Cancel</Button>
+            <Button onClick={handleRecordPlan} disabled={settlePlan.isPending}>
+              {settlePlan.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Confirm
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mark Settled Dialog */}
+      <Dialog
+        open={!!markSettledDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMarkSettledDialog(null);
+            setMarkSettledAmount('');
+            setMarkSettledError('');
+          }
+        }}
+      >
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Mark Settled</DialogTitle>
+            <DialogDescription>
+              {markSettledDialog?.fromName} → {markSettledDialog?.toName}
+            </DialogDescription>
+          </DialogHeader>
+          {markSettledDialog && (
+            <div className="space-y-4 pt-2">
+              <div className="space-y-2">
+                <Label htmlFor="mark-settled-amount">Amount actually paid</Label>
+                <Input
+                  id="mark-settled-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={markSettledAmount}
+                  onChange={(e) => { setMarkSettledAmount(e.target.value); setMarkSettledError(''); }}
+                  className="h-10"
+                />
+                <p className="text-xs text-muted-foreground">
+                  If you paid a different amount, the remainder stays on the balance sheet.
+                </p>
+                {markSettledError && (
+                  <p className="text-xs text-destructive">{markSettledError}</p>
+                )}
+              </div>
+
+              <div className="flex gap-3 pt-1">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    setMarkSettledDialog(null);
+                    setMarkSettledAmount('');
+                    setMarkSettledError('');
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button className="flex-1" onClick={handleConfirmMarkSettled} disabled={settle.isPending}>
+                  {settle.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {settle.isPending ? 'Recording…' : 'Confirm'}
                 </Button>
               </div>
             </div>
