@@ -57,6 +57,11 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 4 * 1024 * 1024, // 4 MiB
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff,woff2}'],
+        // Without this, the SW's SPA navigation fallback intercepts any top-level
+        // navigation to /api/* (e.g. window.open() for a file download) and serves
+        // the cached index.html shell instead of letting the request reach the
+        // network — the export buttons would 404 into React Router's NotFoundPage.
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             // Google Fonts stylesheets
