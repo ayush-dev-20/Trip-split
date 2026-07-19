@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://trip-split-api-us.onrender.com/api/:path*"
+      "destination": "https://tripsplit-api-app.duckdns.org/api/:path*"
     },
     {
       "source": "/(.*)",
