@@ -119,15 +119,19 @@ export function useDeletePersonalExpense() {
   });
 }
 
-export function usePersonalAnalytics(params: {
-  period?: PersonalAnalyticsPeriod;
-  referenceDate?: string;
-  startDate?: string;
-  endDate?: string;
-}) {
+export function usePersonalAnalytics(
+  params: {
+    period?: PersonalAnalyticsPeriod;
+    referenceDate?: string;
+    startDate?: string;
+    endDate?: string;
+  },
+  enabled: boolean = true
+) {
   return useQuery({
     queryKey: ['personal-analytics', params],
     queryFn: () => personalExpenseService.getAnalytics(params),
+    enabled,
     staleTime: 2 * 60_000,
   });
 }

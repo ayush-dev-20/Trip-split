@@ -1,5 +1,5 @@
 import api from './api';
-import type { TripAnalytics, YearInReview, CategoryTrend, MyExpensesSummary } from '@/types';
+import type { TripAnalytics, YearInReview, CategoryTrend, MyExpensesSummary, TripsOverview, GroupsOverview } from '@/types';
 
 export const analyticsService = {
   getTripAnalytics: (tripId: string, dateRange?: { startDate?: string; endDate?: string }) =>
@@ -18,4 +18,14 @@ export const analyticsService = {
 
   getMyExpenses: (year?: number, tripId?: string) =>
     api.get<{ success: boolean; data: MyExpensesSummary }>('/analytics/my-expenses', { params: { year, tripId } }).then((r) => r.data.data),
+
+  getTripsOverview: (params?: { startDate?: string; endDate?: string }) =>
+    api
+      .get<{ success: boolean; data: TripsOverview }>('/analytics/trips-overview', { params })
+      .then((r) => r.data.data),
+
+  getGroupsOverview: (params?: { startDate?: string; endDate?: string }) =>
+    api
+      .get<{ success: boolean; data: GroupsOverview }>('/analytics/groups-overview', { params })
+      .then((r) => r.data.data),
 };

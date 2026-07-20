@@ -2,6 +2,15 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/database';
 import { asyncHandler, AppError } from '../utils';
 import { calculateNetBalances, simplifyDebts } from '../services/settlementService';
+import {
+  computeTripRawAggregate,
+  computeBudgetCommitment,
+  mergeCategoryTotals,
+  pickTopDestinations,
+  bucketSpendingByPeriod,
+  pickMostActiveGroup,
+} from '../services/analyticsAggregation';
+import { convertCurrency } from '../services/currencyService';
 
 /**
  * GET /api/analytics/trip/:tripId
@@ -283,6 +292,317 @@ export const getTripAnalytics = asyncHandler(async (req: Request, res: Response)
         dailyAverage: Math.round(avgDailySpend * 100) / 100,
         projectedTotal,
         daysElapsed,
+      },
+    },
+  });
+});
+
+/**
+ * GET /api/analytics/trips-overview
+ * Aggregates across every trip the user is a member of.
+ */
+export const getTripsOverview = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const startDateParam = req.query.startDate as string | undefined;
+  const endDateParam   = req.query.endDate   as string | undefined;
+
+  if (startDateParam && endDateParam && new Date(startDateParam) > new Date(endDateParam)) {
+    throw AppError.badRequest('startDate must be before endDate');
+  }
+  const startDate = startDateParam ? new Date(startDateParam) : null;
+  const endDate   = endDateParam   ? new Date(endDateParam)   : null;
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { preferredCurrency: true },
+  });
+  const targetCurrency = user.preferredCurrency || 'USD';
+
+  const trips = await prisma.trip.findMany({
+    where: { members: { some: { userId } } },
+    select: {
+      id: true,
+      destination: true,
+      budget: true,
+      budgetCurrency: true,
+      expenses: {
+        where: (startDate || endDate)
+          ? { date: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } }
+          : undefined,
+        select: { baseAmount: true, category: true, date: true },
+      },
+    },
+  });
+
+  const rawAggregates = trips.map(computeTripRawAggregate);
+  const budgetCommitment = computeBudgetCommitment(rawAggregates);
+
+  // Convert each trip's total + category totals to the user's preferred
+  // currency using ONE convertCurrency call per trip (also yields the
+  // exchange rate, reused below to convert that trip's category subtotals
+  // by multiplication instead of calling convertCurrency again per category).
+  let totalSpent = 0;
+  const convertedCategoryTotals: Record<string, { total: number; count: number }>[] = [];
+  const timeSeriesItems: { date: Date; amount: number }[] = [];
+  const exchangeRateByTrip: Record<string, number> = {};
+
+  for (let i = 0; i < trips.length; i++) {
+    const trip = trips[i];
+    const raw = rawAggregates[i];
+    if (raw.rawTotal === 0) continue;
+
+    const { convertedAmount, exchangeRate } = await convertCurrency(raw.rawTotal, raw.budgetCurrency, targetCurrency);
+    totalSpent += convertedAmount;
+    exchangeRateByTrip[trip.id] = exchangeRate;
+
+    const convertedCategories: Record<string, { total: number; count: number }> = {};
+    for (const [category, { total, count }] of Object.entries(raw.categoryTotals)) {
+      convertedCategories[category] = { total: Math.round(total * exchangeRate * 100) / 100, count };
+    }
+    convertedCategoryTotals.push(convertedCategories);
+
+    for (const e of trip.expenses) {
+      timeSeriesItems.push({ date: e.date, amount: Math.round(e.baseAmount * exchangeRate * 100) / 100 });
+    }
+  }
+
+  const categoryBreakdown = mergeCategoryTotals(convertedCategoryTotals);
+  const topDestinations = pickTopDestinations(trips);
+  const spendingOverTime = bucketSpendingByPeriod(timeSeriesItems, startDate, endDate);
+
+  // Settlement progress — a running total, deliberately not date-filtered
+  // (same reasoning as the single-trip endpoint: settling up is not scoped
+  // to a spend window). Fetched in two BATCHED queries across all the
+  // user's trips at once (not one query per trip in a loop), then grouped
+  // by tripId in JS — calculateNetBalances/simplifyDebts still run per-trip
+  // since debt graphs don't merge across trips, but the DB round-trips don't
+  // scale with trip count.
+  const tripIds = trips.map((t) => t.id);
+  const [allTripExpenses, allSettlements] = await Promise.all([
+    prisma.expense.findMany({
+      where: { tripId: { in: tripIds } },
+      select: { tripId: true, paidById: true, splitType: true, baseAmount: true, splits: { select: { userId: true, amount: true } } },
+    }),
+    prisma.settlement.findMany({ where: { tripId: { in: tripIds }, status: 'SETTLED' } }),
+  ]);
+
+  let settledTotal = 0, grandTotalDebt = 0;
+  for (let i = 0; i < trips.length; i++) {
+    const trip = trips[i];
+    const tripExpensesWithSplits = allTripExpenses.filter((e) => e.tripId === trip.id);
+    if (tripExpensesWithSplits.length === 0) continue;
+
+    const netBalances = calculateNetBalances(tripExpensesWithSplits);
+    const simplifiedDebts = simplifyDebts(netBalances);
+    const tripTotalDebt = simplifiedDebts.reduce((sum: number, d: any) => sum + d.amount, 0);
+    if (tripTotalDebt === 0) continue;
+
+    const tripSettled = allSettlements
+      .filter((s) => s.tripId === trip.id)
+      .reduce((sum, s) => sum + s.amount, 0);
+
+    // Reuse the exchange rate already computed above for this trip's
+    // currency when it had date-filtered spend; if the trip had no spend
+    // in the selected window (so no rate was cached) but still has
+    // all-time debt, fetch the rate now. Mirrors getGroupsOverview's
+    // exchangeRateByGroup pattern.
+    const exchangeRate = exchangeRateByTrip[trip.id]
+      ?? (await convertCurrency(1, rawAggregates[i].budgetCurrency, targetCurrency)).exchangeRate;
+    grandTotalDebt += tripTotalDebt * exchangeRate;
+    settledTotal   += Math.min(tripSettled, tripTotalDebt) * exchangeRate;
+  }
+  const outstandingTotal = Math.max(0, grandTotalDebt - settledTotal);
+
+  res.json({
+    success: true,
+    data: {
+      dateRange: { startDate: startDateParam ?? null, endDate: endDateParam ?? null, isCustom: !!(startDateParam || endDateParam) },
+      currency: targetCurrency,
+      totalTrips: trips.length,
+      totalSpent: Math.round(totalSpent * 100) / 100,
+      avgPerTrip: trips.length > 0 ? Math.round((totalSpent / trips.length) * 100) / 100 : 0,
+      budgetCommitment,
+      categoryBreakdown,
+      spendingOverTime,
+      topDestinations,
+      settlementProgress: {
+        total: Math.round(grandTotalDebt * 100) / 100,
+        settled: Math.round(settledTotal * 100) / 100,
+        outstanding: Math.round(outstandingTotal * 100) / 100,
+        percentage: grandTotalDebt > 0 ? Math.round((settledTotal / grandTotalDebt) * 100) : 0,
+      },
+    },
+  });
+});
+
+/**
+ * GET /api/analytics/groups-overview
+ * Aggregates across every group the user is a member of.
+ */
+export const getGroupsOverview = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const startDateParam = req.query.startDate as string | undefined;
+  const endDateParam   = req.query.endDate   as string | undefined;
+
+  if (startDateParam && endDateParam && new Date(startDateParam) > new Date(endDateParam)) {
+    throw AppError.badRequest('startDate must be before endDate');
+  }
+  const startDate = startDateParam ? new Date(startDateParam) : null;
+  const endDate   = endDateParam   ? new Date(endDateParam)   : null;
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { preferredCurrency: true },
+  });
+  const targetCurrency = user.preferredCurrency || 'USD';
+
+  const memberships = await prisma.groupMember.findMany({
+    where: { userId },
+    select: { group: { select: { id: true, name: true, defaultCurrency: true } } },
+  });
+  const groups = memberships.map((m) => m.group);
+  const groupIdsForOverview = groups.map((g) => g.id);
+
+  let totalSpent = 0;
+  const convertedCategoryTotals: Record<string, { total: number; count: number }>[] = [];
+  const timeSeriesItems: { date: Date; amount: number }[] = [];
+  const groupSummaries: { groupId: string; name: string; totalSpent: number; memberCount: number; yourBalance: number }[] = [];
+  const activitySummaries: { groupId: string; name: string; totalSpent: number; expenseCount: number }[] = [];
+  const exchangeRateByGroup: Record<string, number> = {};
+
+  // Date-filtered — drives totalSpent, category breakdown, time series, and
+  // each row's "yourBalance" (balance FROM SPENDING IN THIS WINDOW,
+  // consistent with the row's date-scoped totalSpent right next to it).
+  // Fetched in ONE batched query across all the user's groups (not one query
+  // per group in a loop), then grouped by groupId in JS — same "one query
+  // per module" pattern used for the settlement batched queries below.
+  const [allDateFilteredExpenses, memberCountRows] = await Promise.all([
+    prisma.expense.findMany({
+      where: {
+        groupId: { in: groupIdsForOverview },
+        tripId: null,
+        ...((startDate || endDate)
+          ? { date: { ...(startDate ? { gte: startDate } : {}), ...(endDate ? { lte: endDate } : {}) } }
+          : {}),
+      },
+      select: { groupId: true, baseAmount: true, category: true, date: true, paidById: true, splitType: true, splits: { select: { userId: true, amount: true } } },
+    }),
+    prisma.groupMember.groupBy({
+      by: ['groupId'],
+      where: { groupId: { in: groupIdsForOverview } },
+      _count: { _all: true },
+    }),
+  ]);
+  const memberCountByGroup: Record<string, number> = {};
+  for (const row of memberCountRows) {
+    memberCountByGroup[row.groupId] = row._count._all;
+  }
+
+  for (const group of groups) {
+    const expenses = allDateFilteredExpenses.filter((e) => e.groupId === group.id);
+    const memberCount = memberCountByGroup[group.id] || 0;
+
+    const rawTotal = expenses.reduce((s, e) => s + e.baseAmount, 0);
+    activitySummaries.push({ groupId: group.id, name: group.name, totalSpent: rawTotal, expenseCount: expenses.length });
+
+    if (rawTotal > 0) {
+      const { convertedAmount, exchangeRate } = await convertCurrency(rawTotal, group.defaultCurrency, targetCurrency);
+      totalSpent += convertedAmount;
+      exchangeRateByGroup[group.id] = exchangeRate;
+
+      const categoryTotals: Record<string, { total: number; count: number }> = {};
+      for (const e of expenses) {
+        if (!categoryTotals[e.category]) categoryTotals[e.category] = { total: 0, count: 0 };
+        categoryTotals[e.category].total += e.baseAmount * exchangeRate;
+        categoryTotals[e.category].count += 1;
+      }
+      convertedCategoryTotals.push(categoryTotals);
+
+      for (const e of expenses) timeSeriesItems.push({ date: e.date, amount: e.baseAmount * exchangeRate });
+
+      // Current user's balance within this group: contributed - fair share.
+      // Mirrors the EQUAL-split contribution logic already used for trips.
+      let contributed = 0, fairShare = 0;
+      for (const e of expenses) {
+        const mySplit = e.splits.find((s) => s.userId === userId);
+        if (!mySplit || e.splits.length === 0) continue;
+        fairShare += e.baseAmount / e.splits.length;
+        contributed += e.splitType === 'EQUAL'
+          ? (e.paidById === userId ? e.baseAmount : 0)
+          : mySplit.amount;
+      }
+      groupSummaries.push({
+        groupId: group.id,
+        name: group.name,
+        totalSpent: Math.round(convertedAmount * 100) / 100,
+        memberCount,
+        yourBalance: Math.round((contributed - fairShare) * exchangeRate * 100) / 100,
+      });
+    } else {
+      groupSummaries.push({ groupId: group.id, name: group.name, totalSpent: 0, memberCount, yourBalance: 0 });
+    }
+  }
+
+  const categoryBreakdown = mergeCategoryTotals(convertedCategoryTotals);
+  const spendingOverTime = bucketSpendingByPeriod(timeSeriesItems, startDate, endDate);
+  const mostActiveGroup = pickMostActiveGroup(activitySummaries);
+
+  // Settlement progress — a running total, deliberately NOT date-filtered
+  // (same rule as trips-overview: settling up isn't scoped to a spend
+  // window). Fetched in two batched queries across all the user's groups
+  // at once, then grouped by groupId in JS — same pattern as Task 3.
+  const groupIds = groupIdsForOverview;
+  const [allGroupExpenses, allGroupSettlements] = await Promise.all([
+    prisma.expense.findMany({
+      where: { groupId: { in: groupIds }, tripId: null },
+      select: { groupId: true, paidById: true, splitType: true, baseAmount: true, splits: { select: { userId: true, amount: true } } },
+    }),
+    prisma.settlement.findMany({ where: { groupId: { in: groupIds }, status: 'SETTLED' } }),
+  ]);
+
+  let settledTotal = 0, grandTotalDebt = 0;
+  for (const group of groups) {
+    const groupExpensesAllTime = allGroupExpenses.filter((e) => e.groupId === group.id);
+    if (groupExpensesAllTime.length === 0) continue;
+
+    const netBalances = calculateNetBalances(groupExpensesAllTime);
+    const simplifiedDebts = simplifyDebts(netBalances);
+    const groupTotalDebt = simplifiedDebts.reduce((sum: number, d: any) => sum + d.amount, 0);
+    if (groupTotalDebt === 0) continue;
+
+    const groupSettled = allGroupSettlements
+      .filter((s) => s.groupId === group.id)
+      .reduce((sum, s) => sum + s.amount, 0);
+
+    // Reuse the exchange rate already computed above for this group's
+    // currency when it had date-filtered spend; if the group had no spend
+    // in the selected window (so no rate was cached) but still has
+    // all-time debt, fetch the rate now.
+    const exchangeRate = exchangeRateByGroup[group.id]
+      ?? (await convertCurrency(1, group.defaultCurrency, targetCurrency)).exchangeRate;
+
+    grandTotalDebt += groupTotalDebt * exchangeRate;
+    settledTotal   += Math.min(groupSettled, groupTotalDebt) * exchangeRate;
+  }
+  const outstandingTotal = Math.max(0, grandTotalDebt - settledTotal);
+
+  res.json({
+    success: true,
+    data: {
+      dateRange: { startDate: startDateParam ?? null, endDate: endDateParam ?? null, isCustom: !!(startDateParam || endDateParam) },
+      currency: targetCurrency,
+      totalGroups: groups.length,
+      totalSpent: Math.round(totalSpent * 100) / 100,
+      avgPerGroup: groups.length > 0 ? Math.round((totalSpent / groups.length) * 100) / 100 : 0,
+      mostActiveGroup,
+      categoryBreakdown,
+      spendingOverTime,
+      groups: groupSummaries,
+      settlementProgress: {
+        total: Math.round(grandTotalDebt * 100) / 100,
+        settled: Math.round(settledTotal * 100) / 100,
+        outstanding: Math.round(outstandingTotal * 100) / 100,
+        percentage: grandTotalDebt > 0 ? Math.round((settledTotal / grandTotalDebt) * 100) : 0,
       },
     },
   });

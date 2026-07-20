@@ -334,6 +334,32 @@ export interface TripAnalytics {
   spendingVelocity: { dailyAverage: number; projectedTotal: number; daysElapsed: number };
 }
 
+export interface TripsOverview {
+  dateRange: { startDate: string | null; endDate: string | null; isCustom: boolean };
+  currency: string;
+  totalTrips: number;
+  totalSpent: number;
+  avgPerTrip: number;
+  budgetCommitment: { tripsWithBudget: number; tripsUnderBudget: number; percentage: number };
+  categoryBreakdown: { category: string; total: number; count: number; percentage: number }[];
+  spendingOverTime: { label: string; amount: number }[];
+  topDestinations: { destination: string; count: number }[];
+  settlementProgress: { total: number; settled: number; outstanding: number; percentage: number };
+}
+
+export interface GroupsOverview {
+  dateRange: { startDate: string | null; endDate: string | null; isCustom: boolean };
+  currency: string;
+  totalGroups: number;
+  totalSpent: number;
+  avgPerGroup: number;
+  mostActiveGroup: { groupId: string; name: string; totalSpent: number; expenseCount: number } | null;
+  categoryBreakdown: { category: string; total: number; count: number; percentage: number }[];
+  spendingOverTime: { label: string; amount: number }[];
+  groups: { groupId: string; name: string; totalSpent: number; memberCount: number; yourBalance: number }[];
+  settlementProgress: { total: number; settled: number; outstanding: number; percentage: number };
+}
+
 export interface YearInReview {
   currency: string;
   totalTrips: number;
