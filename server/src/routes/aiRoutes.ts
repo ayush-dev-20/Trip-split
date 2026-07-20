@@ -16,6 +16,7 @@ router.post('/trip-planner', requireFeature('aiTripPlanner'), ai.tripPlanner);
 router.post('/trip-planner/stream', requireFeature('aiTripPlanner'), ai.tripPlannerStream);
 router.post('/trip-planner-for-trip', requireFeature('aiTripPlanner'), ai.tripPlannerForTrip);
 router.post('/trip-planner-for-trip/stream', requireFeature('aiTripPlanner'), ai.tripPlannerForTripStream);
+router.post('/notes/generate/stream', requireFeature('aiNoteGeneration'), ai.generateNoteContentStream);
 router.post('/parse-expense', requireFeature('aiNaturalLanguage'), ai.parseNaturalLanguage);
 router.post('/chat', requireFeature('aiChatbot'), ai.chatbot);
 router.post('/chat-personal', requireFeature('aiChatbot'), ai.chatbotPersonal);

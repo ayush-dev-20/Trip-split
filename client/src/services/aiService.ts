@@ -111,6 +111,20 @@ export const aiService = {
     }
   },
 
+  /**
+   * Streaming AI note generation — informed by the trip's context, for NotesPage's
+   * "Ask AI" feature. Calls `onChunk` for each markdown token; resolves when the stream ends.
+   */
+  noteGenerateStream: async (
+    tripId: string,
+    prompt: string,
+    onChunk: (text: string) => void
+  ): Promise<void> => {
+    for await (const event of streamSSE('/api/ai/notes/generate/stream', { tripId, prompt })) {
+      if (event.type === 'chunk') onChunk(event.text as string);
+    }
+  },
+
   parseNaturalLanguage: (text: string) =>
     api.post<{ success: boolean; data: NLPExpenseResult }>('/ai/parse-expense', { text }).then((r) => r.data.data),
 

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
-  History, Trash2, Loader2, Pencil, Sparkles, Search, X, RepeatIcon, TrendingUp, Download,
+  History, Trash2, Loader2, Pencil, MessageCircle, Search, X, RepeatIcon, TrendingUp, Download,
   BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
@@ -1220,7 +1220,7 @@ export default function PersonalExpensesPage() {
     { id: 'past',      label: 'History',   icon: History },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'recurring', label: 'Recurring', icon: RepeatIcon },
-    { id: 'ai',        label: 'AI',        icon: Sparkles },
+    { id: 'ai',        label: 'AI',        icon: MessageCircle },
   ];
 
   return (

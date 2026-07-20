@@ -12,6 +12,7 @@ import { TableRow } from '@tiptap/extension-table-row';
 import { TableHeader } from '@tiptap/extension-table-header';
 import { TableCell } from '@tiptap/extension-table-cell';
 import { Markdown } from 'tiptap-markdown';
+import { DOMParser as ProseMirrorDOMParser } from '@tiptap/pm/model';
 import {
   Plus,
   Pin,
@@ -32,6 +33,8 @@ import {
   Redo,
   FileText,
   ArrowLeft,
+  Sparkles,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -46,9 +49,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { useNotes, useCreateNote, useUpdateNote, useTogglePin, useDeleteNote } from '@/hooks/useNotes';
 import { useAuthStore } from '@/stores/authStore';
+import { aiService } from '@/services/aiService';
 import type { TripNote } from '@/types';
 
 const lowlight = createLowlight();
@@ -225,6 +231,9 @@ function NoteEditor({
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(note.title);
+  const [showAskAI, setShowAskAI] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiGenerating, setAiGenerating] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { mutate: updateNote } = useUpdateNote(tripId);
   // Ref so the handlePaste closure can access the editor after creation
@@ -239,6 +248,99 @@ function NoteEditor({
     },
     [note.id, updateNote]
   );
+
+  async function handleAskAI(prompt: string) {
+    if (!editor || aiGenerating) return;
+    setAiGenerating(true);
+
+    // Captured once, before this feature adds anything — everything from this
+    // position onward (for the rest of this function) belongs to this
+    // generation, and is the only thing this function will ever delete.
+    const hadContent = editor.getText().trim().length > 0;
+    const insertionStart = editor.state.doc.content.size;
+
+    if (hadContent) {
+      editor.chain().insertContentAt(insertionStart, { type: 'horizontalRule' }).run();
+    }
+    const placeholderFrom = editor.state.doc.content.size;
+    editor.chain().insertContentAt(placeholderFrom, { type: 'paragraph' }).run();
+
+    let accumulated = '';
+    let hadError = false;
+
+    try {
+      await aiService.noteGenerateStream(tripId, prompt, (text) => {
+        accumulated += text;
+        // Re-read the end position fresh on every chunk — never compute it by
+        // hand from string length, since ProseMirror positions and string
+        // length are not guaranteed to be numerically identical.
+        const placeholderTo = editor.state.doc.content.size;
+        // Insert as a LITERAL plain-text node — NOT a parsed string. Passing a
+        // raw string to insertContentAt runs it through the editor's content
+        // parsing, which includes the Markdown extension: it tries to
+        // interpret the still-incomplete, in-progress markdown as rich content
+        // on every single chunk, and incomplete syntax (an unclosed list, a
+        // half-written heading) can throw a schema violation partway through.
+        // schema.text() bypasses all content parsing, so the placeholder stays
+        // truly plain text — exactly as the design intends — until the real
+        // parse happens once, at the very end.
+        const textNode = accumulated.length > 0 ? editor.schema.text(accumulated) : null;
+        const tr = textNode
+          ? editor.view.state.tr.replaceWith(placeholderFrom, placeholderTo, textNode)
+          : editor.view.state.tr.delete(placeholderFrom, placeholderTo);
+        editor.view.dispatch(tr);
+      });
+    } catch {
+      hadError = true;
+    }
+
+    const currentEnd = editor.state.doc.content.size;
+
+    if (hadError && accumulated.trim()) {
+      // eslint-disable-next-line no-console
+      console.error('AI note generation: stream ended with an error after receiving partial content — finalizing what was received.');
+    }
+
+    if (!accumulated.trim()) {
+      // Nothing usable came back at all — remove everything this generation
+      // added (the divider, if any, and the placeholder), leaving the note
+      // exactly as it was before the user clicked Generate.
+      editor.chain().deleteRange({ from: insertionStart, to: currentEnd }).run();
+    } else {
+      // We have real content — finalize it even if `hadError` is true (the
+      // stream connection can hiccup after most of the response already
+      // arrived). Losing a mostly-complete AI response to a late transient
+      // error is worse than showing a possibly-truncated result.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const parser = (editor.storage as any)?.markdown?.parser;
+      if (parser) {
+        try {
+          // `parser.parse()` returns an HTML STRING, not a ProseMirror Node —
+          // it does NOT have `.slice()`/`.content.size` (that was the bug:
+          // calling those on a string throws "Cannot read properties of
+          // undefined"). To get an insertable Slice, convert the HTML string
+          // to a real DOM element, then run it through ProseMirror's own
+          // DOMParser for this editor's schema — this is the exact same
+          // two-step conversion tiptap-markdown's own paste handler uses
+          // internally (see node_modules/tiptap-markdown's clipboard plugin).
+          const html: string = parser.parse(accumulated);
+          const wrapper = document.createElement('div');
+          wrapper.innerHTML = html;
+          const slice = ProseMirrorDOMParser.fromSchema(editor.schema).parseSlice(wrapper, {
+            preserveWhitespace: true,
+          });
+          const tr = editor.view.state.tr.replaceRange(placeholderFrom, currentEnd, slice);
+          editor.view.dispatch(tr);
+        } catch {
+          // Markdown parsing failed — leave the raw streamed text in the
+          // placeholder rather than losing the generated content entirely.
+        }
+      }
+    }
+
+    setAiGenerating(false);
+    scheduleAutoSave({ content: editor.getHTML() });
+  }
 
   const editor = useEditor({
     extensions: [
@@ -331,7 +433,49 @@ function NoteEditor({
           className="text-lg font-semibold border-none shadow-none focus-visible:ring-0 px-0 h-auto"
           placeholder="Note title"
         />
+        <Button
+          size="sm"
+          onClick={() => setShowAskAI(true)}
+          disabled={aiGenerating}
+          className="shrink-0"
+        >
+          {aiGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline ml-1.5">Ask AI</span>
+        </Button>
       </div>
+
+      <Dialog open={showAskAI} onOpenChange={setShowAskAI}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ask AI to write in this note</DialogTitle>
+            <DialogDescription>
+              AI will use this trip's details and add its response to the end of your note — your existing content stays untouched.
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            autoFocus
+            placeholder="e.g. Plan a day-by-day itinerary for this trip"
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            rows={4}
+          />
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowAskAI(false)}>Cancel</Button>
+            <Button
+              onClick={() => {
+                const p = aiPrompt.trim();
+                if (!p) return;
+                setAiPrompt('');
+                setShowAskAI(false);
+                handleAskAI(p);
+              }}
+              disabled={!aiPrompt.trim()}
+            >
+              Generate
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Toolbar */}
       <EditorToolbar editor={editor} />

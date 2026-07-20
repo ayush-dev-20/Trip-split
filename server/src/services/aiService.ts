@@ -397,6 +397,35 @@ export async function generateTripPlanStream(
 }
 
 /**
+ * AI Note Generation — streams a markdown response for a free-form prompt,
+ * informed by the given trip's context. Used by NotesPage's "Ask AI" feature.
+ */
+export async function generateNoteContentStream(
+  params: { tripContext: string; prompt: string },
+  onChunk: (text: string) => void
+): Promise<void> {
+  try {
+    const model = getModel();
+    const fullPrompt = `You are a helpful travel planning assistant. Use the trip context below to inform your response.
+
+Trip context: ${params.tripContext}
+
+User's request: ${params.prompt}
+
+Respond in well-structured markdown (headings, lists, etc. where appropriate). Do not repeat the trip context back verbatim — just use it to inform the content.`;
+
+    const result = await model.generateContentStream(fullPrompt);
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) onChunk(text);
+    }
+  } catch (err) {
+    logger.error('AIService', 'Note generation stream error', { error: String(err) });
+    onChunk('\n\n_Unable to generate content right now. Please try again._');
+  }
+}
+
+/**
  * AI Checkpoint Suggestions — returns structured JSON of places to visit.
  */
 export async function generateCheckpointSuggestions(params: {

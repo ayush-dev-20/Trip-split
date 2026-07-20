@@ -35,6 +35,7 @@ import SettingsPage from '@/pages/settings/SettingsPage';
 import BillingPage from '@/pages/settings/BillingPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import NotesPage from '@/pages/trips/NotesPage';
+import TripAIChatPage from '@/pages/trips/TripAIChatPage';
 
 // ──────────────────────────────────
 // Auth Sync — keeps Clerk + DB user in sync on every session change
@@ -146,6 +147,7 @@ export default function App() {
 
           {/* Notes */}
           <Route path="/trips/:tripId/notes" element={<NotesPage />} />
+          <Route path="/trips/:tripId/ai-chat" element={<TripAIChatPage />} />
 
           {/* Analytics */}
           <Route path="/analytics" element={<AnalyticsPage />} />

@@ -3,9 +3,9 @@ import { useParams, Link, useNavigate } from 'react-router';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Users, Map, Plus, Copy, Trash2, Loader2, Check, MapPin,
+  Users, Plus, Copy, Trash2, Loader2, Check,
   Wallet, ChevronLeft, ChevronRight, History, List, CalendarDays,
-  TrendingUp, TrendingDown, Minus, BarChart2, Pencil, Sparkles,
+  TrendingUp, TrendingDown, Minus, BarChart2, Pencil, MessageCircle,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -13,7 +13,6 @@ import {
 } from 'recharts';
 import { useAuthStore } from '@/stores/authStore';
 import { useGroup, useDeleteGroup } from '@/hooks/useGroups';
-import { useTrips } from '@/hooks/useTrips';
 import {
   useGroupExpenses, useGroupExpensesCalendar,
   useDeleteGroupExpense, useGroupAnalytics, useGroupExpenseSocket,
@@ -615,9 +614,8 @@ function GroupAnalyticsTab({ groupId, currency }: { groupId: string; currency: s
 
 // ── Overview Tab (existing content) ──────────────────────────────────────────
 
-function OverviewTab({ group, trips, copyCode, copied }: {
+function OverviewTab({ group, copyCode, copied }: {
   group: NonNullable<ReturnType<typeof useGroup>['data']>;
-  trips: NonNullable<ReturnType<typeof useTrips>['data']>['trips'];
   copyCode: () => void;
   copied: boolean;
 }) {
@@ -656,52 +654,6 @@ function OverviewTab({ group, trips, copyCode, copied }: {
         </div>
       </section>
 
-      {/* Trips */}
-      <section>
-        <SectionHeading
-          title="Trips"
-          action={<Button asChild size="sm"><Link to="/trips/new"><Plus className="h-4 w-4" /> New Trip</Link></Button>}
-        />
-        {trips.length === 0 ? (
-          <EmptyState
-            icon={<Map className="h-7 w-7" />}
-            title="No trips yet"
-            description="Create the first trip for this group."
-            action={<Button asChild><Link to="/trips/new"><Plus className="h-4 w-4" /> Create Trip</Link></Button>}
-          />
-        ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
-            {trips.map((trip) => (
-              <Link key={trip.id} to={`/trips/${trip.id}`}>
-                <Card className="hover:shadow-card-hover transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <h3 className="font-semibold text-sm flex-1 truncate">{trip.name}</h3>
-                      <Badge variant="outline" className={cn(
-                        'text-[10px] shrink-0',
-                        trip.status === 'ACTIVE'   && 'bg-success/10 text-success border-success/20',
-                        trip.status === 'UPCOMING' && 'bg-info/10 text-info border-info/20',
-                      )}>
-                        {trip.status}
-                      </Badge>
-                    </div>
-                    {trip.destination && (
-                      <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
-                        <MapPin className="h-3 w-3" />{trip.destination}
-                      </p>
-                    )}
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground border-t pt-2">
-                      <span className="flex items-center gap-1"><Users className="h-3 w-3" />{trip._count?.members ?? 0}</span>
-                      <span>{trip._count?.expenses ?? 0} expenses</span>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
-
       <GroupBalancesSection groupId={group.id} groupName={group.name} />
     </div>
   );
@@ -714,14 +666,13 @@ const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',   label: 'Overview',   icon: Users },
   { id: 'expenses',   label: 'Expenses',   icon: Wallet },
   { id: 'analytics',  label: 'Analytics',  icon: BarChart2 },
-  { id: 'ai',         label: 'AI',         icon: Sparkles },
+  { id: 'ai',         label: 'AI',         icon: MessageCircle },
 ];
 
 export default function GroupDetailPage() {
   const { groupId } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
   const { data: group, isLoading } = useGroup(groupId!);
-  const { data: tripsData } = useTrips({ groupId });
   const deleteGroup = useDeleteGroup();
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
   const [copied, setCopied] = useState(false);
@@ -730,7 +681,6 @@ export default function GroupDetailPage() {
 
   if (isLoading || !group) return <PageLoader />;
 
-  const trips = tripsData?.trips ?? [];
   const currency = preferredCurrency;
 
   const copyCode = () => {
@@ -803,7 +753,7 @@ export default function GroupDetailPage() {
           transition={{ duration: 0.15 }}
         >
           {activeTab === 'overview' && (
-            <OverviewTab group={group} trips={trips} copyCode={copyCode} copied={copied} />
+            <OverviewTab group={group} copyCode={copyCode} copied={copied} />
           )}
           {activeTab === 'expenses' && (
             <GroupExpensesTab groupId={groupId!} currency={currency} />

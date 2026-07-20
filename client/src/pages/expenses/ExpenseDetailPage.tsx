@@ -3,7 +3,7 @@ import { useExpense, useDeleteExpense, useAddComment, useAddReaction } from '@/h
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
 import UserAvatar from '@/components/ui/UserAvatar';
-import { Trash2, MessageCircle, Send, Loader2, Sparkles } from 'lucide-react';
+import { Trash2, MessageCircle, Send, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
@@ -270,7 +270,7 @@ export default function ExpenseDetailPage() {
       {/* Ask AI */}
       <div>
         <h2 className="text-base font-semibold mb-3 px-1 flex items-center gap-2">
-          <Sparkles className="h-4 w-4" /> Ask AI
+          <MessageCircle className="h-4 w-4" /> Ask AI
         </h2>
         <div className="h-[50vh] flex flex-col border rounded-xl overflow-hidden bg-card">
           <AIChatPanel

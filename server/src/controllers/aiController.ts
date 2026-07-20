@@ -277,6 +277,54 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
 };
 
 /**
+ * POST /api/ai/notes/generate/stream
+ * SSE — streams AI-generated content for a trip note, informed by the trip's own context.
+ */
+export const generateNoteContentStream = async (req: Request, res: Response) => {
+  const { tripId, prompt } = req.body;
+  const userId = req.user!.id as string;
+
+  if (!tripId || !prompt) {
+    res.status(400).json({ success: false, error: { message: 'tripId and prompt are required' } });
+    return;
+  }
+
+  const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+  if (!member) {
+    res.status(403).json({ success: false, error: { message: 'You are not a member of this trip' } });
+    return;
+  }
+
+  const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { members: true } });
+  if (!trip) {
+    res.status(404).json({ success: false, error: { message: 'Trip not found' } });
+    return;
+  }
+
+  const dateRange = `${trip.startDate.toISOString().split('T')[0]} to ${trip.endDate.toISOString().split('T')[0]}`;
+  const tripContext = `Destination: ${trip.destination || 'Not set'}. Dates: ${dateRange}. Budget: ${trip.budgetCurrency} ${trip.budget ?? 'not set'}. Travelers: ${trip.members.length}.`;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  req.socket?.setNoDelay(true);
+
+  try {
+    await aiService.generateNoteContentStream(
+      { tripContext, prompt },
+      (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
+    );
+  } catch {
+    res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\n_Unable to generate content right now. Please try again._' })}\n\n`);
+  }
+
+  res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  res.end();
+};
+
+/**
  * POST /api/ai/parse-expense
  */
 export const parseNaturalLanguage = asyncHandler(async (req: Request, res: Response) => {

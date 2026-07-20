@@ -28,7 +28,7 @@ import BudgetBurnRateCard from '@/components/trips/BudgetBurnRateCard';
 import {
   MapPin, Calendar, Plus, Receipt, ArrowLeft,
   MoreVertical, Trash2, Settings, Share2, ArrowRightLeft, Pencil, Download,
-  Sparkles, CheckCircle2, Circle, MapPinned, X, NotebookPen, Loader2,
+  Sparkles, CheckCircle2, Circle, MapPinned, X, NotebookPen, Loader2, MessageCircle,
   Wallet, Printer, BarChart3, DollarSign, ArrowUpRight, ArrowDownRight,
   AlertTriangle, Clock, TrendingUp, CalendarDays,
 } from 'lucide-react';
@@ -838,6 +838,7 @@ ${content}
             { to: `/trips/${tripId}/expenses`, icon: Receipt, label: 'Expenses' },
             { to: `/trips/${tripId}/settlements`, icon: ArrowRightLeft, label: 'Settle Up' },
             { to: `/trips/${tripId}/notes`, icon: NotebookPen, label: 'Notes' },
+            { to: `/trips/${tripId}/ai-chat`, icon: MessageCircle, label: 'AI Chat' },
           ].map(({ to, icon: Icon, label, state }) => (
             <Link
               key={to}
