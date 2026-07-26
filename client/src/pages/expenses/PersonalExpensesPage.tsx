@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
-  History, Trash2, Loader2, Pencil, MessageCircle, Search, X, RepeatIcon, TrendingUp, Download,
+  History, Trash2, Loader2, Pencil, MessageCircle, Search, X, RepeatIcon, Download,
   BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, NotebookPen,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
@@ -43,7 +43,9 @@ import {
 import { isDueToday, getMonthlyEquivalent, FREQUENCY_LABELS } from '@/lib/recurring';
 import { useDebounce } from '@/hooks/useDebounce';
 import PersonalBudgetCard from '@/components/expenses/PersonalBudgetCard';
-import { useAnomalyStore, type AnomalyAlert } from '@/stores/anomalyStore';
+import { useAnomalyStore } from '@/stores/anomalyStore';
+import AnomalyBanner from '@/components/ui/AnomalyBanner';
+import AIInsightsPanel from '@/components/ai/AIInsightsPanel';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
@@ -859,33 +861,6 @@ function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
   );
 }
 
-// ── Anomaly Banner ────────────────────────────────────────────────────────────
-
-function AnomalyBanner({ anomaly, onDismiss }: { anomaly: AnomalyAlert; onDismiss: () => void }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -8 }}
-    >
-      <Card className="border-primary/40 bg-primary/5">
-        <CardContent className="p-3 flex items-center gap-3">
-          <TrendingUp className="h-4 w-4 text-primary shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold leading-tight">
-              {anomaly.title} — {formatMoney(anomaly.amount, anomaly.currency)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">{anomaly.reason}</p>
-          </div>
-          <Button variant="ghost" size="icon" className="shrink-0 text-muted-foreground hover:text-foreground" onClick={onDismiss} aria-label="Dismiss">
-            <X className="h-4 w-4" />
-          </Button>
-        </CardContent>
-      </Card>
-    </motion.div>
-  );
-}
-
 // ── Recurring Tab ─────────────────────────────────────────────────────────────
 
 function RecurringTab({
@@ -1362,13 +1337,16 @@ export default function PersonalExpensesPage() {
             />
           )}
           {view === 'ai' && (
-            <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
-              <AIChatPanel
-                mutationFn={(msg) => aiService.chatbotPersonal(msg)}
-                placeholder="Ask about your expenses…"
-                emptyTitle="Ask about your spending"
-                emptySubtitle='"How much on food this week?" · "Show my top categories"'
-              />
+            <div className="space-y-4">
+              <AIInsightsPanel scope="personal" currency={preferredCurrency} />
+              <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+                <AIChatPanel
+                  mutationFn={(msg) => aiService.chatbotPersonal(msg)}
+                  placeholder="Ask about your expenses…"
+                  emptyTitle="Ask about your spending"
+                  emptySubtitle='"How much on food this week?" · "Show my top categories"'
+                />
+              </div>
             </div>
           )}
         </motion.div>

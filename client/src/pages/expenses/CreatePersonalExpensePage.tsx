@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, Link, useSearchParams, useParams } from 'react-router';
-import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, ArrowLeft, RefreshCw } from 'lucide-react';
+import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, ArrowLeft, RefreshCw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -13,6 +13,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { CATEGORY_STYLES } from '@/lib/categoryStyle';
+import { useCategorySuggestion } from '@/hooks/useCategorySuggestion';
 import { FREQUENCY_LABELS } from '@/lib/recurring';
 import {
   useCreatePersonalExpense,
@@ -103,6 +104,10 @@ export default function CreatePersonalExpensePage() {
 
   const set = (field: keyof Form, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
+
+  const { suggestion: categorySuggestion, dismiss: dismissCategorySuggestion } = useCategorySuggestion(
+    form.title, form.description, form.category
+  );
 
   // ── Voice input ──────────────────────────────────────────────────────────
 
@@ -285,6 +290,24 @@ export default function CreatePersonalExpensePage() {
               value={form.title}
               onChange={(e) => set('title', e.target.value)}
             />
+            {categorySuggestion && (
+              <div className="flex items-center gap-2 text-xs">
+                <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                <span className="text-muted-foreground">
+                  AI suggests: <span className="font-medium text-foreground">{CATEGORY_STYLES[categorySuggestion].label}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { set('category', categorySuggestion); dismissCategorySuggestion(); }}
+                  className="text-primary font-medium hover:underline"
+                >
+                  Apply
+                </button>
+                <button type="button" onClick={dismissCategorySuggestion} className="text-muted-foreground hover:text-foreground">
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Amount + Currency */}

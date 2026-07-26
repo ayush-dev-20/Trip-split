@@ -37,6 +37,9 @@ import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format
 import { cn } from '@/lib/utils';
 import type { GroupExpense, GroupAnalyticsPeriod, ExpenseCategory } from '@/types';
 import AIChatPanel from '@/components/ui/AIChatPanel';
+import AnomalyBanner from '@/components/ui/AnomalyBanner';
+import AIInsightsPanel from '@/components/ai/AIInsightsPanel';
+import { useAnomalyStore } from '@/stores/anomalyStore';
 import { aiService } from '@/services/aiService';
 import GroupBalancesSection from '@/components/groups/GroupBalancesSection';
 
@@ -151,6 +154,8 @@ function TodayView({ groupId, currency }: { groupId: string; currency: string })
 
   const { data, isLoading } = useGroupExpenses(groupId, { startDate, endDate, limit: 100 });
   const deleteMutation = useDeleteGroupExpense(groupId);
+  const anomaly = useAnomalyStore((s) => s.anomaly);
+  const clearAnomaly = useAnomalyStore((s) => s.clearAnomaly);
   const expenses = data?.expenses ?? [];
   const total = expenses.reduce((s, e) => s + e.baseAmount, 0);
 
@@ -158,6 +163,10 @@ function TodayView({ groupId, currency }: { groupId: string; currency: string })
 
   return (
     <div className="space-y-4">
+      <AnimatePresence>
+        {anomaly && <AnomalyBanner anomaly={anomaly} onDismiss={clearAnomaly} />}
+      </AnimatePresence>
+
       <div className="grid grid-cols-2 gap-3">
         <Card className="p-4">
           <p className="text-xs text-muted-foreground">Today's Total</p>
@@ -770,13 +779,16 @@ export default function GroupDetailPage() {
             <GroupAnalyticsTab groupId={groupId!} currency={currency} />
           )}
           {activeTab === 'ai' && (
-            <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
-              <AIChatPanel
-                mutationFn={(msg) => aiService.chatbotGroup(groupId!, msg)}
-                placeholder="Ask about group expenses…"
-                emptyTitle="Ask about group spending"
-                emptySubtitle='"Who paid the most?" · "What did we spend on food?"'
-              />
+            <div className="space-y-4">
+              <AIInsightsPanel scope="group" groupId={groupId!} currency={group.defaultCurrency} />
+              <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+                <AIChatPanel
+                  mutationFn={(msg) => aiService.chatbotGroup(groupId!, msg)}
+                  placeholder="Ask about group expenses…"
+                  emptyTitle="Ask about group spending"
+                  emptySubtitle='"Who paid the most?" · "What did we spend on food?"'
+                />
+              </div>
             </div>
           )}
         </motion.div>

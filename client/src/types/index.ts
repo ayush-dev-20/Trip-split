@@ -508,6 +508,18 @@ export interface BudgetStatus {
   byCategory?: { category: string; spent: number; share: number }[];
 }
 
+export interface AIBudgetStatus {
+  status: 'under' | 'on_track' | 'over';
+  summary: string;
+  tips: string[];
+}
+
+export interface AIPredictedCost {
+  predictedTotal: number;
+  confidence: 'low' | 'medium' | 'high';
+  reasoning: string;
+}
+
 export interface TripBalances {
   balances: Balance[];
   simplifiedDebts: SimplifiedDebt[];

@@ -24,6 +24,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import ItemizedSplitEditor from '@/components/expenses/ItemizedSplitEditor';
 import { CATEGORY_STYLES } from '@/lib/categoryStyle';
+import { useCategorySuggestion } from '@/hooks/useCategorySuggestion';
 import { cn } from '@/lib/utils';
 
 const SPLIT_TYPES: { value: SplitType; label: string; hint: string }[] = [
@@ -353,6 +354,10 @@ export default function CreateExpensePage() {
 
   const update = (field: string, value: string) => setForm((prev) => ({ ...prev, [field]: value }));
 
+  const { suggestion: categorySuggestion, dismiss: dismissCategorySuggestion } = useCategorySuggestion(
+    form.title, form.description, form.category
+  );
+
   // Clears the itemized receipt split and restores manual split-type selection.
   const handleClearItemized = () => {
     setItemizedReceipt(null);
@@ -485,6 +490,24 @@ export default function CreateExpensePage() {
                 required
                 className="h-10"
               />
+              {categorySuggestion && !itemizedReceipt && (
+                <div className="flex items-center gap-2 text-xs">
+                  <Sparkles className="h-3 w-3 text-primary shrink-0" />
+                  <span className="text-muted-foreground">
+                    AI suggests: <span className="font-medium text-foreground">{CATEGORY_STYLES[categorySuggestion].label}</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { update('category', categorySuggestion); dismissCategorySuggestion(); }}
+                    className="text-primary font-medium hover:underline"
+                  >
+                    Apply
+                  </button>
+                  <button type="button" onClick={dismissCategorySuggestion} className="text-muted-foreground hover:text-foreground">
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-3 gap-3">

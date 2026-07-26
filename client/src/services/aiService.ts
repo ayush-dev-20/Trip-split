@@ -1,6 +1,6 @@
 import api from './api';
 import { getClerkToken } from '@/lib/clerkHelper';
-import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint } from '@/types';
+import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint, AIBudgetStatus, AIPredictedCost } from '@/types';
 
 /**
  * Low-level SSE helper — POSTs to `url`, then async-iterates the event stream.
@@ -64,11 +64,14 @@ export const aiService = {
   categorize: (title: string, description?: string) =>
     api.post<{ success: boolean; data: { category: string } }>('/ai/categorize', { title, description }).then((r) => r.data.data),
 
-  budgetAdvisor: (tripId: string) =>
-    api.post<{ success: boolean; data: unknown }>('/ai/budget-advisor', { tripId }).then((r) => r.data.data),
+  insightsSpending: (scope: 'trip' | 'group' | 'personal', ids?: { tripId?: string; groupId?: string }) =>
+    api.post<{ success: boolean; data: { insights: string } }>('/ai/insights/spending', { scope, ...ids }).then((r) => r.data.data.insights),
 
-  spendingInsights: (tripId: string) =>
-    api.post<{ success: boolean; data: { insights: string } }>(`/ai/spending-insights/${tripId}`).then((r) => r.data.data.insights),
+  insightsBudgetStatus: (scope: 'trip' | 'personal', tripId?: string) =>
+    api.post<{ success: boolean; data: AIBudgetStatus }>('/ai/insights/budget-status', { scope, tripId }).then((r) => r.data.data),
+
+  insightsPredictedCost: (scope: 'trip' | 'personal', tripId?: string) =>
+    api.post<{ success: boolean; data: AIPredictedCost }>('/ai/insights/predicted-cost', { scope, tripId }).then((r) => r.data.data),
 
   tripPlanner: (destination: string, days: number, budget: number, currency: string, travelers: number) =>
     api.post<{ success: boolean; data: TripPlan }>('/ai/trip-planner', { destination, days, budget, currency, travelers }).then((r) => r.data.data),
@@ -135,16 +138,13 @@ export const aiService = {
   chatbot: (tripId: string, message: string) =>
     api.post<{ success: boolean; data: { answer: string } }>('/ai/chat', { tripId, message }).then((r) => r.data.data.answer),
 
-  predictCost: (tripId: string) =>
-    api.post<{ success: boolean; data: unknown }>('/ai/predict-cost', { tripId }).then((r) => r.data.data),
-
   chatbotPersonal: (message: string) =>
     api.post<{ success: boolean; data: { answer: string } }>('/ai/chat-personal', { message }).then((r) => r.data.data.answer),
 
   chatbotGroup: (groupId: string, message: string) =>
     api.post<{ success: boolean; data: { answer: string } }>('/ai/chat-group', { groupId, message }).then((r) => r.data.data.answer),
 
-  detectAnomaly: (params: { title: string; amount: number; category: string }) =>
+  detectAnomaly: (params: { title: string; amount: number; category: string; tripId?: string; groupId?: string }) =>
     api
       .post<{ success: boolean; data: { isAnomaly: boolean; reason: string | null; severity: 'low' | 'medium' | 'high' } }>(
         '/ai/detect-anomaly',

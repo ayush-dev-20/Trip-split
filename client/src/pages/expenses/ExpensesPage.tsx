@@ -4,10 +4,12 @@ import { useTrip } from '@/hooks/useTrips';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
 import PageHeader from '@/components/ui/PageHeader';
+import AnomalyBanner from '@/components/ui/AnomalyBanner';
+import { useAnomalyStore } from '@/stores/anomalyStore';
 import { Receipt, Plus, Search, Pencil, Trash2 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import type { ExpenseCategory } from '@/types';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -30,6 +32,8 @@ const CATEGORIES: ExpenseCategory[] = [
 export default function ExpensesPage() {
   const { tripId } = useParams<{ tripId: string }>();
   const { data: trip } = useTrip(tripId!);
+  const anomaly = useAnomalyStore((s) => s.anomaly);
+  const clearAnomaly = useAnomalyStore((s) => s.clearAnomaly);
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState<ExpenseCategory | ''>('');
   const { data, isLoading } = useExpenses(tripId!, category ? { category } : undefined);
@@ -70,6 +74,10 @@ export default function ExpensesPage() {
           </Button>
         }
       />
+
+      <AnimatePresence>
+        {anomaly && <AnomalyBanner anomaly={anomaly} onDismiss={clearAnomaly} />}
+      </AnimatePresence>
 
       {/* Total summary strip */}
       {filtered.length > 0 && trip && (

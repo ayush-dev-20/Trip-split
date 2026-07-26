@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useParams, Link } from 'react-router';
 import { aiService } from '@/services/aiService';
+import { useTrip } from '@/hooks/useTrips';
+import AIInsightsPanel from '@/components/ai/AIInsightsPanel';
 import ReactMarkdown from 'react-markdown';
 import { ArrowLeft, MessageCircle, Send, Brain } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -16,6 +18,7 @@ interface ChatMsg {
 
 export default function TripAIChatPage() {
   const { tripId } = useParams<{ tripId: string }>();
+  const { data: trip } = useTrip(tripId!);
 
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -62,6 +65,8 @@ export default function TripAIChatPage() {
           </div>
         </div>
       </div>
+
+      <AIInsightsPanel scope="trip" tripId={tripId!} currency={trip?.budgetCurrency} />
 
       <Card className="flex flex-col h-[60vh] sm:h-[500px]">
         {/* Messages */}

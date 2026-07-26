@@ -249,14 +249,14 @@ Return ONLY valid JSON, no markdown.`,
 /**
  * AI Expense Categorizer — Given an expense title, suggest a category.
  */
-export async function categorizeExpense(title: string): Promise<string> {
+export async function categorizeExpense(title: string, description?: string): Promise<string> {
   const validCategories = [
     'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
     'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION', 'FEES', 'MISCELLANEOUS',
   ];
 
   const text = await askText(
-    `Given this expense: "${title}"
+    `Given this expense: "${title}"${description ? ` — ${description}` : ''}
 Return ONLY one category from: ${validCategories.join(', ')}
 No explanation, just the category name.`,
     'MISCELLANEOUS'
@@ -267,48 +267,59 @@ No explanation, just the category name.`,
 }
 
 /**
- * AI Trip Budget Advisor — Suggest a budget for a trip.
+ * AI Budget Status — Analyze pacing against an existing trip or monthly budget.
  */
-export async function suggestTripBudget(params: {
-  destination: string;
-  durationDays: number;
-  groupSize: number;
-  travelStyle?: string;
+export async function analyzeBudgetStatus(params: {
+  scope: 'trip' | 'personal';
+  spent: number;
+  budget: number;
+  currency: string;
+  elapsedRatio: number; // 0..1, how far through the trip/month we are
+  categoryBreakdown: Record<string, number>;
 }): Promise<{
-  totalBudget: number;
-  perPersonBudget: number;
-  breakdown: Record<string, number>;
+  status: 'under' | 'on_track' | 'over';
+  summary: string;
   tips: string[];
 }> {
+  const spendRatio = params.budget > 0 ? params.spent / params.budget : 0;
   return askJSON(
-    `You are a travel budget advisor. Suggest a realistic budget for:
-Destination: ${params.destination}, Duration: ${params.durationDays} days, Group: ${params.groupSize} people, Style: ${params.travelStyle || 'moderate'}
+    `You are a budget pacing advisor. Analyze this ${params.scope === 'trip' ? 'trip' : 'personal monthly'} budget:
+Budget: ${params.currency} ${params.budget}
+Spent so far: ${params.currency} ${params.spent} (${(spendRatio * 100).toFixed(0)}% of budget)
+Time elapsed: ${(params.elapsedRatio * 100).toFixed(0)}%
+Category breakdown: ${JSON.stringify(params.categoryBreakdown)}
 
-Return JSON:
-{ "totalBudget": number, "perPersonBudget": number, "breakdown": { "food": number, "transport": number, "accommodation": number, "activities": number, "miscellaneous": number }, "tips": ["tip1","tip2","tip3"] }
-All amounts in USD. Return ONLY valid JSON.`,
-    { totalBudget: 0, perPersonBudget: 0, breakdown: {}, tips: ['Unable to generate budget estimate.'] }
+Return JSON: { "status": "under"|"on_track"|"over", "summary": "1-2 sentence pacing summary", "tips": ["tip1","tip2"] }
+"over" means the spend ratio is meaningfully ahead of time elapsed. Return ONLY valid JSON.`,
+    {
+      status:
+        spendRatio > params.elapsedRatio + 0.15 ? ('over' as const) :
+        spendRatio < params.elapsedRatio - 0.15 ? ('under' as const) :
+        ('on_track' as const),
+      summary: 'Unable to generate budget analysis at this time.',
+      tips: [],
+    }
   );
 }
 
 /**
- * AI Spending Insights — Generate natural language summary of trip spending.
+ * AI Spending Insights — Generate a natural language summary of spending for a trip, group, or personal scope.
  */
 export async function generateSpendingInsights(data: {
-  tripName: string;
-  destination: string;
+  scopeLabel: string; // e.g. "the \"Tokyo\" trip", "the \"Roommates\" group", "your personal spending this month"
   totalBudget: number | null;
   totalSpent: number;
   categoryBreakdown: Record<string, number>;
   perUserSpending: { name: string; amount: number }[];
-  duration: number;
+  duration: number | null; // days; null when the scope has no fixed duration (e.g. a group)
 }): Promise<string> {
   return askText(
-    `You are a friendly spending insights assistant. Analyze this trip data and give a concise, insightful summary.
-Include: overall spending health, category highlights, per-person observations, and actionable tips.
+    `You are a friendly spending insights assistant. Analyze this spending data for ${data.scopeLabel} and give a concise, insightful summary.
+Include: overall spending health, category highlights, per-person observations (if more than one person), and actionable tips.
 Keep it conversational, under 300 words.
+${data.totalBudget == null ? 'No budget has been set for this scope — skip budget-pacing commentary and focus on category and behavioral insights instead.' : ''}
 
-Trip Data: ${JSON.stringify(data)}`,
+Data: ${JSON.stringify(data)}`,
     'Unable to generate insights at this time.'
   );
 }
@@ -677,28 +688,30 @@ User question: ${message}`,
 /**
  * AI Expense Prediction — Predict trip cost based on history.
  */
-export async function predictTripCost(data: {
-  destination: string;
-  durationDays: number;
-  groupSize: number;
-  pastTrips: {
-    destination: string;
-    duration: number;
-    groupSize: number;
-    totalSpent: number;
-    categoryBreakdown: Record<string, number>;
-  }[];
+/**
+ * AI Predicted Cost — Project total spend by the end of the trip/month based on current pace.
+ */
+export async function predictProjectedCost(params: {
+  scope: 'trip' | 'personal';
+  spentSoFar: number;
+  currency: string;
+  elapsedRatio: number; // 0..1
+  categoryBreakdown: Record<string, number>;
 }): Promise<{
   predictedTotal: number;
-  predictedPerPerson: number;
   confidence: 'low' | 'medium' | 'high';
-  breakdown: Record<string, number>;
+  reasoning: string;
 }> {
+  const naiveProjection = params.elapsedRatio > 0 ? params.spentSoFar / params.elapsedRatio : params.spentSoFar;
   return askJSON(
-    `Based on past trip data, predict the cost for a new trip.
-Data: ${JSON.stringify(data)}
-Return JSON: { "predictedTotal": number, "predictedPerPerson": number, "confidence": "low"|"medium"|"high", "breakdown": { "category": amount } }
+    `You are a spending forecaster. Based on the current pace, project the total spend by the end of the ${params.scope === 'trip' ? 'trip' : 'month'}.
+Spent so far: ${params.currency} ${params.spentSoFar}
+Time elapsed: ${(params.elapsedRatio * 100).toFixed(0)}%
+Category breakdown: ${JSON.stringify(params.categoryBreakdown)}
+A naive linear projection would be ${params.currency} ${naiveProjection.toFixed(2)} — use this as a starting point but adjust for realistic spending patterns (e.g. front-loaded accommodation costs).
+
+Return JSON: { "predictedTotal": number, "confidence": "low"|"medium"|"high", "reasoning": "1 sentence" }
 Return ONLY valid JSON.`,
-    { predictedTotal: 0, predictedPerPerson: 0, confidence: 'low' as const, breakdown: {} }
+    { predictedTotal: Math.round(naiveProjection), confidence: 'low' as const, reasoning: 'Unable to generate prediction at this time.' }
   );
 }

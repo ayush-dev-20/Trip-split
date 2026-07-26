@@ -2,6 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 import { groupExpenseService } from '@/services/groupExpenseService';
 import { useSocketEvent } from '@/contexts/SocketContext';
+import { aiService } from '@/services/aiService';
+import { useAnomalyStore } from '@/stores/anomalyStore';
 import type { CreateGroupExpensePayload, GroupAnalyticsPeriod } from '@/types';
 
 // ── Queries ───────────────────────────────────────────────────────────────────
@@ -48,9 +50,27 @@ export function useGroupAnalytics(groupId: string, period: GroupAnalyticsPeriod,
 
 export function useCreateGroupExpense(groupId: string) {
   const qc = useQueryClient();
+  const setAnomaly = useAnomalyStore((s) => s.setAnomaly);
   return useMutation({
     mutationFn: (data: CreateGroupExpensePayload) => groupExpenseService.create(groupId, data),
-    onSuccess: () => invalidateAll(qc, groupId),
+    onSuccess: (expense) => {
+      invalidateAll(qc, groupId);
+
+      aiService
+        .detectAnomaly({ title: expense.title, amount: expense.baseAmount, category: expense.category, groupId })
+        .then((result) => {
+          if (result.isAnomaly && result.reason) {
+            setAnomaly({
+              expenseId: expense.id,
+              title: expense.title,
+              amount: expense.amount,
+              currency: expense.currency,
+              reason: result.reason,
+            });
+          }
+        })
+        .catch(() => {}); // best-effort — never block or surface an error for this enrichment call
+    },
   });
 }
 

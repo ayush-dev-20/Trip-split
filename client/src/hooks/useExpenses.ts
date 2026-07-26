@@ -1,6 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { expenseService } from '@/services/expenseService';
 import { analyticsService } from '@/services/analyticsService';
+import { aiService } from '@/services/aiService';
+import { useAnomalyStore } from '@/stores/anomalyStore';
 import type { ExpenseCategory } from '@/types';
 
 export function useExpenses(
@@ -24,13 +26,29 @@ export function useExpense(tripId: string, expenseId: string) {
 
 export function useCreateExpense(tripId: string) {
   const qc = useQueryClient();
+  const setAnomaly = useAnomalyStore((s) => s.setAnomaly);
   return useMutation({
     mutationFn: (data: Parameters<typeof expenseService.create>[1]) =>
       expenseService.create(tripId, data),
-    onSuccess: () => {
+    onSuccess: (expense) => {
       qc.invalidateQueries({ queryKey: ['expenses', tripId] });
       qc.invalidateQueries({ queryKey: ['trips', tripId] });
       qc.invalidateQueries({ queryKey: ['settlements', tripId] });
+
+      aiService
+        .detectAnomaly({ title: expense.title, amount: expense.convertedAmount ?? expense.amount, category: expense.category, tripId })
+        .then((result) => {
+          if (result.isAnomaly && result.reason) {
+            setAnomaly({
+              expenseId: expense.id,
+              title: expense.title,
+              amount: expense.amount,
+              currency: expense.currency,
+              reason: result.reason,
+            });
+          }
+        })
+        .catch(() => {}); // best-effort — never block or surface an error for this enrichment call
     },
   });
 }

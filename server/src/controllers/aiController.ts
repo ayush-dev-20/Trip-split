@@ -38,79 +38,273 @@ export const scanReceiptItems = asyncHandler(async (req: Request, res: Response)
  * POST /api/ai/categorize
  */
 export const categorizeExpense = asyncHandler(async (req: Request, res: Response) => {
-  const { title } = req.body;
+  const { title, description } = req.body;
 
   if (!title) throw AppError.badRequest('title is required');
 
-  const category = await aiService.categorizeExpense(title);
+  const category = await aiService.categorizeExpense(title, description);
 
   res.json({ success: true, data: { category } });
 });
 
 /**
- * POST /api/ai/budget-advisor
+ * POST /api/ai/insights/budget-status
+ * Body: { scope: 'trip' | 'personal', tripId?: string }
  */
-export const budgetAdvisor = asyncHandler(async (req: Request, res: Response) => {
-  const { destination, durationDays, groupSize, travelStyle } = req.body;
+export const budgetStatus = asyncHandler(async (req: Request, res: Response) => {
+  const { scope, tripId } = req.body as { scope: 'trip' | 'personal'; tripId?: string };
+  const userId = req.user!.id as string;
 
-  if (!destination || !durationDays || !groupSize) {
-    throw AppError.badRequest('destination, durationDays, and groupSize are required');
+  if (scope === 'trip') {
+    if (!tripId) throw AppError.badRequest('tripId is required for trip scope');
+
+    const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { expenses: true } });
+    if (!trip) throw AppError.notFound('Trip not found');
+    if (!trip.budget) throw AppError.badRequest('This trip has no budget set', 'NO_BUDGET_SET');
+
+    const totalSpent = trip.expenses.reduce((sum, e) => sum + e.baseAmount, 0);
+    const categoryBreakdown: Record<string, number> = {};
+    for (const e of trip.expenses) {
+      categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
+    }
+
+    const now = Date.now();
+    const elapsedRatio = Math.min(1, Math.max(0,
+      (now - trip.startDate.getTime()) / (trip.endDate.getTime() - trip.startDate.getTime())
+    ));
+
+    const result = await aiService.analyzeBudgetStatus({
+      scope: 'trip',
+      spent: totalSpent,
+      budget: trip.budget,
+      currency: trip.budgetCurrency,
+      elapsedRatio,
+      categoryBreakdown,
+    });
+
+    res.json({ success: true, data: result });
+    return;
   }
 
-  const result = await aiService.suggestTripBudget({
-    destination,
-    durationDays,
-    groupSize,
-    travelStyle,
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { monthlyBudget: true, monthlyBudgetCurrency: true, preferredCurrency: true },
+  });
+  if (!user.monthlyBudget) throw AppError.badRequest('No monthly budget set', 'NO_BUDGET_SET');
+
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+  const expenses = await prisma.expense.findMany({
+    where: { paidById: userId, tripId: null, groupId: null, date: { gte: startOfMonth, lte: endOfMonth } },
+    select: { baseAmount: true, category: true },
+  });
+  const totalSpent = expenses.reduce((sum, e) => sum + e.baseAmount, 0);
+  const categoryBreakdown: Record<string, number> = {};
+  for (const e of expenses) {
+    categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
+  }
+
+  const elapsedRatio = Math.min(1, Math.max(0,
+    (now.getTime() - startOfMonth.getTime()) / (endOfMonth.getTime() - startOfMonth.getTime())
+  ));
+
+  const result = await aiService.analyzeBudgetStatus({
+    scope: 'personal',
+    spent: totalSpent,
+    budget: user.monthlyBudget,
+    currency: user.monthlyBudgetCurrency ?? user.preferredCurrency,
+    elapsedRatio,
+    categoryBreakdown,
   });
 
   res.json({ success: true, data: result });
 });
 
 /**
- * POST /api/ai/spending-insights/:tripId
+ * POST /api/ai/insights/predicted-cost
+ * Body: { scope: 'trip' | 'personal', tripId?: string }
  */
-export const spendingInsights = asyncHandler(async (req: Request, res: Response) => {
-  const tripId = req.params.tripId as string;
+export const predictedCost = asyncHandler(async (req: Request, res: Response) => {
+  const { scope, tripId } = req.body as { scope: 'trip' | 'personal'; tripId?: string };
+  const userId = req.user!.id as string;
 
-  const trip = await prisma.trip.findUnique({
-    where: { id: tripId },
-    include: {
-      members: { include: { user: { select: { id: true, name: true } } } },
-      expenses: {
-        include: { paidBy: { select: { name: true } } },
-      },
-    },
+  if (scope === 'trip') {
+    if (!tripId) throw AppError.badRequest('tripId is required for trip scope');
+
+    const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { expenses: true } });
+    if (!trip) throw AppError.notFound('Trip not found');
+
+    const totalSpent = trip.expenses.reduce((sum, e) => sum + e.baseAmount, 0);
+    const categoryBreakdown: Record<string, number> = {};
+    for (const e of trip.expenses) {
+      categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
+    }
+
+    const now = Date.now();
+    const elapsedRatio = Math.min(1, Math.max(0,
+      (now - trip.startDate.getTime()) / (trip.endDate.getTime() - trip.startDate.getTime())
+    ));
+
+    const result = await aiService.predictProjectedCost({
+      scope: 'trip',
+      spentSoFar: totalSpent,
+      currency: trip.budgetCurrency,
+      elapsedRatio,
+      categoryBreakdown,
+    });
+
+    res.json({ success: true, data: result });
+    return;
+  }
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { monthlyBudgetCurrency: true, preferredCurrency: true },
   });
 
-  if (!trip) throw AppError.notFound('Trip not found');
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
 
-  const totalSpent = trip.expenses.reduce((sum: number, e: any) => sum + e.baseAmount, 0);
-
+  const expenses = await prisma.expense.findMany({
+    where: { paidById: userId, tripId: null, groupId: null, date: { gte: startOfMonth, lte: endOfMonth } },
+    select: { baseAmount: true, category: true },
+  });
+  const totalSpent = expenses.reduce((sum, e) => sum + e.baseAmount, 0);
   const categoryBreakdown: Record<string, number> = {};
-  for (const e of trip.expenses) {
+  for (const e of expenses) {
     categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
   }
 
-  const perUserSpending: Record<string, number> = {};
-  for (const e of trip.expenses) {
-    const name = (e as any).paidBy.name;
-    perUserSpending[name] = (perUserSpending[name] || 0) + e.baseAmount;
+  const elapsedRatio = Math.min(1, Math.max(0,
+    (now.getTime() - startOfMonth.getTime()) / (endOfMonth.getTime() - startOfMonth.getTime())
+  ));
+
+  const result = await aiService.predictProjectedCost({
+    scope: 'personal',
+    spentSoFar: totalSpent,
+    currency: user.monthlyBudgetCurrency ?? user.preferredCurrency,
+    elapsedRatio,
+    categoryBreakdown,
+  });
+
+  res.json({ success: true, data: result });
+});
+
+/**
+ * POST /api/ai/insights/spending
+ * Body: { scope: 'trip' | 'group' | 'personal', tripId?: string, groupId?: string }
+ */
+export const spendingInsights = asyncHandler(async (req: Request, res: Response) => {
+  const { scope, tripId, groupId } = req.body as { scope: 'trip' | 'group' | 'personal'; tripId?: string; groupId?: string };
+  const userId = req.user!.id as string;
+
+  if (scope === 'trip') {
+    if (!tripId) throw AppError.badRequest('tripId is required for trip scope');
+
+    const trip = await prisma.trip.findUnique({
+      where: { id: tripId },
+      include: {
+        members: { include: { user: { select: { id: true, name: true } } } },
+        expenses: { include: { paidBy: { select: { name: true } } } },
+      },
+    });
+    if (!trip) throw AppError.notFound('Trip not found');
+
+    const totalSpent = trip.expenses.reduce((sum, e) => sum + e.baseAmount, 0);
+    const categoryBreakdown: Record<string, number> = {};
+    for (const e of trip.expenses) {
+      categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
+    }
+    const perUserSpending: Record<string, number> = {};
+    for (const e of trip.expenses) {
+      const name = e.paidBy.name;
+      perUserSpending[name] = (perUserSpending[name] || 0) + e.baseAmount;
+    }
+    const tripDays = Math.max(1, Math.ceil(
+      (trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24)
+    ));
+
+    const insights = await aiService.generateSpendingInsights({
+      scopeLabel: `the "${trip.name}" trip${trip.destination ? ` to ${trip.destination}` : ''}`,
+      totalBudget: trip.budget,
+      totalSpent,
+      categoryBreakdown,
+      perUserSpending: Object.entries(perUserSpending).map(([name, amount]) => ({ name, amount })),
+      duration: tripDays,
+    });
+
+    res.json({ success: true, data: { insights } });
+    return;
   }
 
-  const tripDays = Math.max(
-    1,
-    Math.ceil((trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24))
-  );
+  if (scope === 'group') {
+    if (!groupId) throw AppError.badRequest('groupId is required for group scope');
+
+    const group = await prisma.group.findUnique({
+      where: { id: groupId },
+      include: {
+        members: { include: { user: { select: { id: true, name: true } } } },
+        expenses: { include: { paidBy: { select: { name: true } } } },
+      },
+    });
+    if (!group) throw AppError.notFound('Group not found');
+
+    const totalSpent = group.expenses.reduce((sum, e) => sum + e.baseAmount, 0);
+    const categoryBreakdown: Record<string, number> = {};
+    for (const e of group.expenses) {
+      categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
+    }
+    const perUserSpending: Record<string, number> = {};
+    for (const e of group.expenses) {
+      const name = e.paidBy.name;
+      perUserSpending[name] = (perUserSpending[name] || 0) + e.baseAmount;
+    }
+
+    const insights = await aiService.generateSpendingInsights({
+      scopeLabel: `the "${group.name}" group`,
+      totalBudget: null,
+      totalSpent,
+      categoryBreakdown,
+      perUserSpending: Object.entries(perUserSpending).map(([name, amount]) => ({ name, amount })),
+      duration: null,
+    });
+
+    res.json({ success: true, data: { insights } });
+    return;
+  }
+
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { monthlyBudget: true },
+  });
+
+  const now = new Date();
+  const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const endOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
+  const expenses = await prisma.expense.findMany({
+    where: { paidById: userId, tripId: null, groupId: null, date: { gte: startOfMonth, lte: endOfMonth } },
+    select: { baseAmount: true, category: true },
+  });
+  const totalSpent = expenses.reduce((sum, e) => sum + e.baseAmount, 0);
+  const categoryBreakdown: Record<string, number> = {};
+  for (const e of expenses) {
+    categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
+  }
+  const daysThisMonth = Math.max(1, Math.ceil(
+    (endOfMonth.getTime() - startOfMonth.getTime()) / (1000 * 60 * 60 * 24)
+  ));
 
   const insights = await aiService.generateSpendingInsights({
-    tripName: trip.name,
-    destination: trip.destination || 'Unknown',
-    totalBudget: trip.budget,
+    scopeLabel: 'your personal spending this month',
+    totalBudget: user.monthlyBudget,
     totalSpent,
     categoryBreakdown,
-    perUserSpending: Object.entries(perUserSpending).map(([name, amount]) => ({ name, amount })),
-    duration: tripDays,
+    perUserSpending: [],
+    duration: daysThisMonth,
   });
 
   res.json({ success: true, data: { insights } });
@@ -608,56 +802,22 @@ export const chatbotGroup = asyncHandler(async (req: Request, res: Response) => 
 });
 
 /**
- * POST /api/ai/predict-cost
+ * Pure helper — decides which Expense rows to average against for anomaly detection.
+ * tripId takes priority, then groupId, then falls back to the user's own personal expenses
+ * (tripId AND groupId both null — a Group expense must never be silently treated as personal).
  */
-export const predictCost = asyncHandler(async (req: Request, res: Response) => {
-  const { destination, durationDays, groupSize } = req.body;
-  const userId = req.user!.id as string;
-
-  const pastTrips = await prisma.trip.findMany({
-    where: {
-      members: { some: { userId } },
-      status: 'COMPLETED',
-    },
-    include: {
-      expenses: { select: { baseAmount: true, category: true } },
-      members: true,
-    },
-    orderBy: { endDate: 'desc' },
-    take: 10,
-  });
-
-  const pastTripData = pastTrips.map((t: any) => {
-    const totalSpent = t.expenses.reduce((sum: number, e: any) => sum + e.baseAmount, 0);
-    const categoryBreakdown: Record<string, number> = {};
-    for (const e of t.expenses) {
-      categoryBreakdown[e.category] = (categoryBreakdown[e.category] || 0) + e.baseAmount;
-    }
-    return {
-      destination: t.destination || 'Unknown',
-      duration: Math.ceil((t.endDate.getTime() - t.startDate.getTime()) / (1000 * 60 * 60 * 24)),
-      groupSize: t.members.length,
-      totalSpent,
-      categoryBreakdown,
-    };
-  });
-
-  const prediction = await aiService.predictTripCost({
-    destination,
-    durationDays,
-    groupSize,
-    pastTrips: pastTripData,
-  });
-
-  res.json({ success: true, data: prediction });
-});
+export function buildAnomalyWhereClause(userId: string, category: string, tripId?: string, groupId?: string) {
+  if (tripId) return { tripId, category };
+  if (groupId) return { groupId, category };
+  return { paidById: userId, tripId: null, groupId: null, category };
+}
 
 /**
  * POST /api/ai/detect-anomaly
- * tripId omitted → personal-expense scope (category average from the user's own history).
+ * Scope is inferred from which id is present: tripId → trip, groupId → group, neither → personal.
  */
 export const detectAnomaly = asyncHandler(async (req: Request, res: Response) => {
-  const { title, amount, category, tripId } = req.body;
+  const { title, amount, category, tripId, groupId } = req.body;
   const userId = req.user!.id as string;
 
   if (!title || !amount) {
@@ -665,9 +825,7 @@ export const detectAnomaly = asyncHandler(async (req: Request, res: Response) =>
   }
 
   const categoryExpenses = await prisma.expense.aggregate({
-    where: tripId
-      ? { tripId, category: category || 'MISCELLANEOUS' }
-      : { paidById: userId, tripId: null, category: category || 'MISCELLANEOUS' },
+    where: buildAnomalyWhereClause(userId, category || 'MISCELLANEOUS', tripId, groupId) as any,
     _avg: { baseAmount: true },
   });
 
