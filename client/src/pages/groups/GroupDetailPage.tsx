@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Plus, Copy, Trash2, Loader2, Check,
   Wallet, ChevronLeft, ChevronRight, History, List, CalendarDays,
-  TrendingUp, TrendingDown, Minus, BarChart2, Pencil, MessageCircle,
+  TrendingUp, TrendingDown, Minus, BarChart2, Pencil, MessageCircle, NotebookPen,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
@@ -661,11 +661,12 @@ function OverviewTab({ group, copyCode, copied }: {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'overview' | 'expenses' | 'analytics' | 'ai';
+type Tab = 'overview' | 'expenses' | 'analytics' | 'notes' | 'ai';
 const TABS: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: 'overview',   label: 'Overview',   icon: Users },
   { id: 'expenses',   label: 'Expenses',   icon: Wallet },
   { id: 'analytics',  label: 'Analytics',  icon: BarChart2 },
+  { id: 'notes',      label: 'Notes',      icon: NotebookPen },
   { id: 'ai',         label: 'AI',         icon: MessageCircle },
 ];
 
@@ -729,19 +730,26 @@ export default function GroupDetailPage() {
       {/* Tab bar */}
       <div className="overflow-x-auto">
         <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setActiveTab(id)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
-                activeTab === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{label}</span>
-            </button>
-          ))}
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const tabClasses = cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
+              activeTab === id ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground',
+            );
+            if (id === 'notes') {
+              return (
+                <Link key={id} to={`/groups/${groupId}/notes`} className={tabClasses}>
+                  <Icon className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">{label}</span>
+                </Link>
+              );
+            }
+            return (
+              <button key={id} onClick={() => setActiveTab(id)} className={tabClasses}>
+                <Icon className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">{label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 

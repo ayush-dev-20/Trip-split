@@ -206,12 +206,6 @@ export const createPollSchema = z.object({
   expiresAt: z.string().datetime().optional(),
 });
 
-export const createTripNoteSchema = z.object({
-  title: z.string().min(1).max(200),
-  content: z.string().min(1).max(10000),
-  isPinned: z.boolean().default(false),
-});
-
 export const createFeedPostSchema = z.object({
   content: z.string().max(5000).optional(),
   imageUrl: z.string().url().optional(),

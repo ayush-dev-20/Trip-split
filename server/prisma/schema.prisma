@@ -147,7 +147,7 @@ model User {
   activityLogs      ActivityLog[]     @relation("ActivityUser")
   chatMessages      ChatMessage[]
   pollVotes         PollVote[]
-  tripNotes         TripNote[]
+  notes             Note[]
   feedPosts         TripFeedPost[]
   refreshTokens     RefreshToken[]
   auditLogs         AuditLog[]
@@ -206,6 +206,7 @@ model Group {
   trips       Trip[]
   expenses    Expense[]
   settlements Settlement[]
+  notes       Note[]
 
   @@index([inviteCode])
 }
@@ -251,7 +252,7 @@ model Trip {
   settlements  Settlement[]
   chatMessages ChatMessage[]
   polls        Poll[]
-  tripNotes    TripNote[]
+  notes        Note[]
   feedPosts    TripFeedPost[]
   activityLogs ActivityLog[]
   checkpoints  Checkpoint[]
@@ -464,12 +465,14 @@ model PollVote {
   @@index([optionId])
 }
 
-model TripNote {
+model Note {
   id        String   @id @default(uuid())
   title     String
   content   String
-  tripId    String
-  trip      Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  tripId    String?
+  trip      Trip?    @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  groupId   String?
+  group     Group?   @relation(fields: [groupId], references: [id], onDelete: Cascade)
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   isPinned  Boolean  @default(false)
@@ -477,6 +480,8 @@ model TripNote {
   updatedAt DateTime @updatedAt
 
   @@index([tripId])
+  @@index([groupId])
+  @@index([userId])
 }
 
 model TripFeedPost {

@@ -116,11 +116,15 @@ export const aiService = {
    * "Ask AI" feature. Calls `onChunk` for each markdown token; resolves when the stream ends.
    */
   noteGenerateStream: async (
-    tripId: string,
+    scope: { type: 'trip'; tripId: string } | { type: 'group'; groupId: string } | { type: 'personal' },
     prompt: string,
     onChunk: (text: string) => void
   ): Promise<void> => {
-    for await (const event of streamSSE('/api/ai/notes/generate/stream', { tripId, prompt })) {
+    const body =
+      scope.type === 'trip' ? { scope: 'trip', tripId: scope.tripId, prompt } :
+      scope.type === 'group' ? { scope: 'group', groupId: scope.groupId, prompt } :
+      { scope: 'personal', prompt };
+    for await (const event of streamSSE('/api/ai/notes/generate/stream', body)) {
       if (event.type === 'chunk') onChunk(event.text as string);
     }
   },

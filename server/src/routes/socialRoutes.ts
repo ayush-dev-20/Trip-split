@@ -4,7 +4,6 @@ import { authenticate, validate } from '../middleware';
 import {
   sendMessageSchema,
   createPollSchema,
-  createTripNoteSchema,
   createFeedPostSchema,
 } from '../validators';
 
@@ -21,12 +20,6 @@ router.get('/trips/:tripId/polls', social.getPolls);
 router.post('/trips/:tripId/polls', validate({ body: createPollSchema }), social.createPoll);
 router.post('/polls/:pollId/vote/:optionId', social.votePoll);
 router.put('/polls/:pollId/close', social.closePoll);
-
-// Notes
-router.get('/trips/:tripId/notes', social.getTripNotes);
-router.post('/trips/:tripId/notes', validate({ body: createTripNoteSchema }), social.createTripNote);
-router.put('/trips/:tripId/notes/:noteId', social.updateTripNote);
-router.delete('/trips/:tripId/notes/:noteId', social.deleteTripNote);
 
 // Feed
 router.get('/trips/:tripId/feed', social.getTripFeed);

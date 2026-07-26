@@ -281,28 +281,75 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
  * SSE — streams AI-generated content for a trip note, informed by the trip's own context.
  */
 export const generateNoteContentStream = async (req: Request, res: Response) => {
-  const { tripId, prompt } = req.body;
+  const { scope, tripId, groupId, prompt } = req.body as {
+    scope: 'trip' | 'group' | 'personal';
+    tripId?: string;
+    groupId?: string;
+    prompt?: string;
+  };
   const userId = req.user!.id as string;
 
-  if (!tripId || !prompt) {
-    res.status(400).json({ success: false, error: { message: 'tripId and prompt are required' } });
+  if (!scope || !prompt) {
+    res.status(400).json({ success: false, error: { message: 'scope and prompt are required' } });
     return;
   }
 
-  const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
-  if (!member) {
-    res.status(403).json({ success: false, error: { message: 'You are not a member of this trip' } });
-    return;
-  }
+  let context: string;
 
-  const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { members: true } });
-  if (!trip) {
-    res.status(404).json({ success: false, error: { message: 'Trip not found' } });
-    return;
+  if (scope === 'trip') {
+    if (!tripId) {
+      res.status(400).json({ success: false, error: { message: 'tripId is required for trip scope' } });
+      return;
+    }
+    const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+    if (!member) {
+      res.status(403).json({ success: false, error: { message: 'You are not a member of this trip' } });
+      return;
+    }
+    const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { members: true } });
+    if (!trip) {
+      res.status(404).json({ success: false, error: { message: 'Trip not found' } });
+      return;
+    }
+    const dateRange = `${trip.startDate.toISOString().split('T')[0]} to ${trip.endDate.toISOString().split('T')[0]}`;
+    context = `Destination: ${trip.destination || 'Not set'}. Dates: ${dateRange}. Budget: ${trip.budgetCurrency} ${trip.budget ?? 'not set'}. Travelers: ${trip.members.length}.`;
+  } else if (scope === 'group') {
+    if (!groupId) {
+      res.status(400).json({ success: false, error: { message: 'groupId is required for group scope' } });
+      return;
+    }
+    const member = await prisma.groupMember.findFirst({ where: { groupId, userId } });
+    if (!member) {
+      res.status(403).json({ success: false, error: { message: 'You are not a member of this group' } });
+      return;
+    }
+    const group = await prisma.group.findUnique({ where: { id: groupId }, include: { members: true } });
+    if (!group) {
+      res.status(404).json({ success: false, error: { message: 'Group not found' } });
+      return;
+    }
+    const expenses = await prisma.expense.findMany({
+      where: { groupId, tripId: null },
+      select: { baseAmount: true, category: true },
+    });
+    const totalSpent = expenses.reduce((s, e) => s + e.baseAmount, 0);
+    context = `Group: ${group.name}. Members: ${group.members.length}. Default currency: ${group.defaultCurrency}. Total spent so far: ${group.defaultCurrency} ${totalSpent.toFixed(2)} across ${expenses.length} expenses.`;
+  } else {
+    const user = await prisma.user.findUnique({ where: { id: userId }, select: { preferredCurrency: true } });
+    const currency = user?.preferredCurrency || 'USD';
+    const expenses = await prisma.expense.findMany({
+      where: { paidById: userId, tripId: null, groupId: null },
+      select: { baseAmount: true, category: true },
+      orderBy: { date: 'desc' },
+      take: 100,
+    });
+    const totalSpent = expenses.reduce((s, e) => s + e.baseAmount, 0);
+    const categoryMap: Record<string, number> = {};
+    for (const e of expenses) categoryMap[e.category] = (categoryMap[e.category] || 0) + e.baseAmount;
+    const topCategories = Object.entries(categoryMap).sort((a, b) => b[1] - a[1]).slice(0, 3)
+      .map(([cat, amt]) => `${cat} (${currency} ${amt.toFixed(2)})`).join(', ');
+    context = `Personal spending: ${currency} ${totalSpent.toFixed(2)} total across ${expenses.length} recent expenses. Top categories: ${topCategories || 'none yet'}.`;
   }
-
-  const dateRange = `${trip.startDate.toISOString().split('T')[0]} to ${trip.endDate.toISOString().split('T')[0]}`;
-  const tripContext = `Destination: ${trip.destination || 'Not set'}. Dates: ${dateRange}. Budget: ${trip.budgetCurrency} ${trip.budget ?? 'not set'}. Travelers: ${trip.members.length}.`;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -313,7 +360,7 @@ export const generateNoteContentStream = async (req: Request, res: Response) => 
 
   try {
     await aiService.generateNoteContentStream(
-      { tripContext, prompt },
+      { context, prompt },
       (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
     );
   } catch {

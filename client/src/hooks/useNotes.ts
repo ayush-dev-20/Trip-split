@@ -1,47 +1,51 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { noteService } from '@/services/noteService';
-import type { TripNote } from '@/types';
+import type { Note, NoteScope } from '@/types';
 
-const key = (tripId: string) => ['notes', tripId];
+function scopeKey(scope: NoteScope): string {
+  if (scope.type === 'trip') return `trip:${scope.tripId}`;
+  if (scope.type === 'group') return `group:${scope.groupId}`;
+  return 'personal';
+}
 
-export function useNotes(tripId: string) {
+const key = (scope: NoteScope) => ['notes', scopeKey(scope)];
+
+export function useNotes(scope: NoteScope) {
   return useQuery({
-    queryKey: key(tripId),
-    queryFn: () => noteService.list(tripId),
-    enabled: !!tripId,
+    queryKey: key(scope),
+    queryFn: () => noteService.list(scope),
   });
 }
 
-export function useCreateNote(tripId: string) {
+export function useCreateNote(scope: NoteScope) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { title: string; content?: string }) =>
-      noteService.create(tripId, payload),
+    mutationFn: (payload: { title: string; content?: string }) => noteService.create(scope, payload),
     onSuccess: (note) => {
-      qc.setQueryData<TripNote[]>(key(tripId), (prev = []) => [note, ...prev]);
+      qc.setQueryData<Note[]>(key(scope), (prev = []) => [note, ...prev]);
     },
   });
 }
 
-export function useUpdateNote(tripId: string) {
+export function useUpdateNote(scope: NoteScope) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ noteId, ...payload }: { noteId: string; title?: string; content?: string }) =>
-      noteService.update(tripId, noteId, payload),
+      noteService.update(scope, noteId, payload),
     onSuccess: (updated) => {
-      qc.setQueryData<TripNote[]>(key(tripId), (prev = []) =>
+      qc.setQueryData<Note[]>(key(scope), (prev = []) =>
         prev.map((n) => (n.id === updated.id ? updated : n))
       );
     },
   });
 }
 
-export function useTogglePin(tripId: string) {
+export function useTogglePin(scope: NoteScope) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (noteId: string) => noteService.togglePin(tripId, noteId),
+    mutationFn: (noteId: string) => noteService.togglePin(scope, noteId),
     onSuccess: (updated) => {
-      qc.setQueryData<TripNote[]>(key(tripId), (prev = []) => {
+      qc.setQueryData<Note[]>(key(scope), (prev = []) => {
         const list = prev.map((n) => (n.id === updated.id ? updated : n));
         return [...list].sort((a, b) => {
           if (a.isPinned === b.isPinned) return 0;
@@ -52,14 +56,12 @@ export function useTogglePin(tripId: string) {
   });
 }
 
-export function useDeleteNote(tripId: string) {
+export function useDeleteNote(scope: NoteScope) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (noteId: string) => noteService.delete(tripId, noteId),
+    mutationFn: (noteId: string) => noteService.delete(scope, noteId),
     onSuccess: (_, noteId) => {
-      qc.setQueryData<TripNote[]>(key(tripId), (prev = []) =>
-        prev.filter((n) => n.id !== noteId)
-      );
+      qc.setQueryData<Note[]>(key(scope), (prev = []) => prev.filter((n) => n.id !== noteId));
     },
   });
 }

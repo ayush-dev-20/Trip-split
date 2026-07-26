@@ -21,6 +21,8 @@ import billingRoutes from './routes/billingRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import checkpointRoutes from './routes/checkpointRoutes';
 import noteRoutes from './routes/noteRoutes';
+import groupNoteRoutes from './routes/groupNoteRoutes';
+import personalNoteRoutes from './routes/personalNoteRoutes';
 import webhookRoutes from './routes/webhookRoutes';
 import exportRoutes from './routes/exportRoutes';
 
@@ -90,9 +92,11 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/groups', groupNoteRoutes);
 app.use('/api/trips', tripRoutes);
 app.use('/api/expenses', expenseRoutes);
 app.use('/api/personal-expenses', personalExpenseRoutes);
+app.use('/api/personal', personalNoteRoutes);
 app.use('/api/settlements', settlementRoutes);
 app.use('/api/social', socialRoutes);
 app.use('/api/analytics', analyticsRoutes);

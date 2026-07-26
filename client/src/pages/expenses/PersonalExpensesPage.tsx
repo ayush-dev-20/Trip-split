@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
   History, Trash2, Loader2, Pencil, MessageCircle, Search, X, RepeatIcon, TrendingUp, Download,
-  BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight,
+  BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, NotebookPen,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import {
@@ -1198,7 +1198,7 @@ function PersonalAnalyticsTab() {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type View = 'today' | 'calendar' | 'past' | 'analytics' | 'recurring' | 'ai';
+type View = 'today' | 'calendar' | 'past' | 'analytics' | 'recurring' | 'notes' | 'ai';
 
 export default function PersonalExpensesPage() {
   const [view, setView]               = useState<View>('today');
@@ -1220,6 +1220,7 @@ export default function PersonalExpensesPage() {
     { id: 'past',      label: 'History',   icon: History },
     { id: 'analytics', label: 'Analytics', icon: BarChart3 },
     { id: 'recurring', label: 'Recurring', icon: RepeatIcon },
+    { id: 'notes',     label: 'Notes',     icon: NotebookPen },
     { id: 'ai',        label: 'AI',        icon: MessageCircle },
   ];
 
@@ -1250,20 +1251,26 @@ export default function PersonalExpensesPage() {
       {/* Tab toggle */}
       <div className="overflow-x-auto -mx-4 px-4">
         <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-          {TABS.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              onClick={() => setView(id)}
-              className={cn(
-                'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
-                view === id
-                  ? 'bg-background shadow-sm text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Icon className="h-3.5 w-3.5" /> {label}
-            </button>
-          ))}
+          {TABS.map(({ id, label, icon: Icon }) => {
+            const tabClasses = cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors shrink-0 whitespace-nowrap',
+              view === id
+                ? 'bg-background shadow-sm text-foreground'
+                : 'text-muted-foreground hover:text-foreground',
+            );
+            if (id === 'notes') {
+              return (
+                <Link key={id} to="/expenses/notes" className={tabClasses}>
+                  <Icon className="h-3.5 w-3.5" /> {label}
+                </Link>
+              );
+            }
+            return (
+              <button key={id} onClick={() => setView(id)} className={tabClasses}>
+                <Icon className="h-3.5 w-3.5" /> {label}
+              </button>
+            );
+          })}
         </div>
       </div>
 

@@ -55,7 +55,7 @@ import { cn } from '@/lib/utils';
 import { useNotes, useCreateNote, useUpdateNote, useTogglePin, useDeleteNote } from '@/hooks/useNotes';
 import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
-import type { TripNote } from '@/types';
+import type { Note, NoteScope } from '@/types';
 
 const lowlight = createLowlight();
 
@@ -223,11 +223,11 @@ function sanitizeNoteContent(html: string): string {
 
 function NoteEditor({
   note,
-  tripId,
+  scope,
   onClose,
 }: {
-  note: TripNote;
-  tripId: string;
+  note: Note;
+  scope: NoteScope;
   onClose: () => void;
 }) {
   const [title, setTitle] = useState(note.title);
@@ -235,7 +235,7 @@ function NoteEditor({
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const { mutate: updateNote } = useUpdateNote(tripId);
+  const { mutate: updateNote } = useUpdateNote(scope);
   // Ref so the handlePaste closure can access the editor after creation
   const editorRef = useRef<ReturnType<typeof useEditor>>(null);
 
@@ -269,7 +269,7 @@ function NoteEditor({
     let hadError = false;
 
     try {
-      await aiService.noteGenerateStream(tripId, prompt, (text) => {
+      await aiService.noteGenerateStream(scope, prompt, (text) => {
         accumulated += text;
         // Re-read the end position fresh on every chunk — never compute it by
         // hand from string length, since ProseMirror positions and string
@@ -449,7 +449,7 @@ function NoteEditor({
           <DialogHeader>
             <DialogTitle>Ask AI to write in this note</DialogTitle>
             <DialogDescription>
-              AI will use this trip's details and add its response to the end of your note — your existing content stays untouched.
+              AI will use {scope.type === 'trip' ? "this trip's" : scope.type === 'group' ? "this group's" : 'your'} details and add its response to the end of your note — your existing content stays untouched.
             </DialogDescription>
           </DialogHeader>
           <Textarea
@@ -498,7 +498,7 @@ function NoteListItem({
   onPin,
   onDelete,
 }: {
-  note: TripNote;
+  note: Note;
   isActive: boolean;
   onSelect: () => void;
   onPin: () => void;
@@ -556,13 +556,22 @@ function NoteListItem({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function NotesPage() {
-  const { tripId } = useParams<{ tripId: string }>();
+  const { tripId, groupId } = useParams<{ tripId?: string; groupId?: string }>();
   const user = useAuthStore((s) => s.user);
 
-  const { data: notes = [], isLoading } = useNotes(tripId!);
-  const { mutate: createNote, isPending: creating } = useCreateNote(tripId!);
-  const { mutate: togglePin } = useTogglePin(tripId!);
-  const { mutate: deleteNote } = useDeleteNote(tripId!);
+  const scope: NoteScope = tripId
+    ? { type: 'trip', tripId }
+    : groupId
+      ? { type: 'group', groupId }
+      : { type: 'personal' };
+
+  const backTo = tripId ? `/trips/${tripId}` : groupId ? `/groups/${groupId}` : '/expenses';
+  const backLabel = tripId ? 'Back to Trip' : groupId ? 'Back to Group' : 'Back to Expenses';
+
+  const { data: notes = [], isLoading } = useNotes(scope);
+  const { mutate: createNote, isPending: creating } = useCreateNote(scope);
+  const { mutate: togglePin } = useTogglePin(scope);
+  const { mutate: deleteNote } = useDeleteNote(scope);
 
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [showEditor, setShowEditor] = useState(false); // mobile: show editor panel
@@ -605,7 +614,7 @@ export default function NotesPage() {
   }
 
   const myNotes = notes.filter((n) => n.userId === user?.id);
-  const otherNotes = notes.filter((n) => n.userId !== user?.id);
+  const otherNotes = scope.type === 'personal' ? [] : notes.filter((n) => n.userId !== user?.id);
 
   return (
     <div className="flex h-[calc(100vh-3.5rem-4rem)] lg:h-[calc(100vh-4rem)] -mx-4 sm:-mx-6 lg:-mx-8 -my-4 lg:-my-8 overflow-hidden">
@@ -621,8 +630,8 @@ export default function NotesPage() {
         <div className="flex flex-col border-b">
           <div className="flex items-center px-4 py-2 border-b">
             <Button variant="ghost" size="sm" className="h-8 px-2 -ml-1 text-muted-foreground hover:text-foreground" asChild>
-              <Link to={`/trips/${tripId}`}>
-                <ArrowLeft className="h-4 w-4 mr-1.5" /> Back to Trip
+              <Link to={backTo}>
+                <ArrowLeft className="h-4 w-4 mr-1.5" /> {backLabel}
               </Link>
             </Button>
           </div>
@@ -728,7 +737,7 @@ export default function NotesPage() {
           <NoteEditor
             key={activeNote.id}
             note={activeNote}
-            tripId={tripId!}
+            scope={scope}
             onClose={() => { setShowEditor(false); }}
           />
         ) : (

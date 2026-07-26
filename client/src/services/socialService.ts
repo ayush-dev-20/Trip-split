@@ -1,5 +1,5 @@
 import api from './api';
-import type { ChatMessage, Poll, TripNote, TripFeedPost } from '@/types';
+import type { ChatMessage, Poll, TripFeedPost } from '@/types';
 
 export const socialService = {
   // Chat
@@ -21,19 +21,6 @@ export const socialService = {
 
   closePoll: (_tripId: string, pollId: string) =>
     api.put(`/social/polls/${pollId}/close`),
-
-  // Notes
-  getNotes: (tripId: string) =>
-    api.get<{ success: boolean; data: TripNote[] }>(`/social/trips/${tripId}/notes`).then((r) => r.data.data ?? []),
-
-  createNote: (tripId: string, data: { title: string; content: string }) =>
-    api.post<{ success: boolean; data: TripNote }>(`/social/trips/${tripId}/notes`, data).then((r) => r.data.data),
-
-  updateNote: (tripId: string, noteId: string, data: { title?: string; content?: string; isPinned?: boolean }) =>
-    api.put<{ success: boolean; data: TripNote }>(`/social/trips/${tripId}/notes/${noteId}`, data).then((r) => r.data.data),
-
-  deleteNote: (tripId: string, noteId: string) =>
-    api.delete(`/social/trips/${tripId}/notes/${noteId}`),
 
   // Feed
   getFeed: (tripId: string) =>

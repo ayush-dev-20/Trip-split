@@ -227,17 +227,23 @@ export interface PollVote {
   user?: User;
 }
 
-export interface TripNote {
+export interface Note {
   id: string;
   title: string;
   content: string;
   isPinned: boolean;
-  tripId: string;
+  tripId: string | null;
+  groupId: string | null;
   userId: string;
   user?: User;
   createdAt: string;
   updatedAt: string;
 }
+
+export type NoteScope =
+  | { type: 'trip'; tripId: string }
+  | { type: 'group'; groupId: string }
+  | { type: 'personal' };
 
 export interface TripFeedPost {
   id: string;
@@ -525,18 +531,6 @@ export interface OverallDebtEntry {
 export interface OverallBalances {
   iOwe: OverallDebtEntry[];
   owedToMe: OverallDebtEntry[];
-}
-
-export interface TripNote {
-  id: string;
-  tripId: string;
-  userId: string;
-  title: string;
-  content: string;
-  isPinned: boolean;
-  user?: User;
-  createdAt: string;
-  updatedAt: string;
 }
 
 // ─── Personal Expense Types ──────────────────────────────────────────────────

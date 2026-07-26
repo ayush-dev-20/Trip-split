@@ -34,7 +34,7 @@ import AIAssistantPage from '@/pages/ai/AIAssistantPage';
 import SettingsPage from '@/pages/settings/SettingsPage';
 import BillingPage from '@/pages/settings/BillingPage';
 import NotFoundPage from '@/pages/NotFoundPage';
-import NotesPage from '@/pages/trips/NotesPage';
+import NotesPage from '@/pages/notes/NotesPage';
 import TripAIChatPage from '@/pages/trips/TripAIChatPage';
 
 // ──────────────────────────────────
@@ -130,11 +130,13 @@ export default function App() {
           <Route path="/groups/:groupId" element={<GroupDetailPage />} />
           <Route path="/groups/:groupId/expenses/new" element={<CreateGroupExpensePage />} />
           <Route path="/groups/:groupId/expenses/:id/edit" element={<CreateGroupExpensePage />} />
+          <Route path="/groups/:groupId/notes" element={<NotesPage />} />
 
           {/* Personal Expenses */}
           <Route path="/expenses" element={<PersonalExpensesPage />} />
           <Route path="/expenses/new" element={<CreatePersonalExpensePage />} />
           <Route path="/expenses/:id/edit" element={<CreatePersonalExpensePage />} />
+          <Route path="/expenses/notes" element={<NotesPage />} />
 
           {/* Expenses (trip-scoped) */}
           <Route path="/trips/:tripId/expenses" element={<ExpensesPage />} />

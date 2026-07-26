@@ -401,18 +401,18 @@ export async function generateTripPlanStream(
  * informed by the given trip's context. Used by NotesPage's "Ask AI" feature.
  */
 export async function generateNoteContentStream(
-  params: { tripContext: string; prompt: string },
+  params: { context: string; prompt: string },
   onChunk: (text: string) => void
 ): Promise<void> {
   try {
     const model = getModel();
-    const fullPrompt = `You are a helpful travel planning assistant. Use the trip context below to inform your response.
+    const fullPrompt = `You are a helpful assistant. Use the context below to inform your response.
 
-Trip context: ${params.tripContext}
+Context: ${params.context}
 
 User's request: ${params.prompt}
 
-Respond in well-structured markdown (headings, lists, etc. where appropriate). Do not repeat the trip context back verbatim — just use it to inform the content.`;
+Respond in well-structured markdown (headings, lists, etc. where appropriate). Do not repeat the context back verbatim — just use it to inform the content.`;
 
     const result = await model.generateContentStream(fullPrompt);
     for await (const chunk of result.stream) {
