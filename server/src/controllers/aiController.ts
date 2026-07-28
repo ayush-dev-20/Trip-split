@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '../config/database';
 import { asyncHandler, AppError } from '../utils';
 import * as aiService from '../services/aiService';
+import { getPeriodWindow, shiftPeriodBack, type Period } from './analyticsController';
 import multer from 'multer';
 
 // Multer config — store receipt files in memory for base64 conversion
@@ -311,6 +312,71 @@ export const spendingInsights = asyncHandler(async (req: Request, res: Response)
 });
 
 /**
+ * POST /api/ai/insights/root-cause
+ * Body: { period?: 'week'|'month'|'quarter'|'year', referenceDate?: string, startDate?: string, endDate?: string }
+ * Personal-analytics only — reuses the exact period-window logic from getPersonalAnalytics.
+ */
+export const rootCauseSpending = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const { period: periodParam, referenceDate, startDate: startDateParam, endDate: endDateParam } = req.body as {
+    period?: Exclude<Period, 'custom'>;
+    referenceDate?: string;
+    startDate?: string;
+    endDate?: string;
+  };
+
+  const useCustomRange = !!(startDateParam && endDateParam);
+  let start: Date, end: Date, prevStart: Date, prevEnd: Date, periodLabel: string;
+
+  if (useCustomRange) {
+    start = new Date(startDateParam!);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(endDateParam!);
+    end.setHours(23, 59, 59, 999);
+    if (start > end) throw AppError.badRequest('startDate must be before endDate');
+    const rangeMs = end.getTime() - start.getTime();
+    prevEnd = new Date(start.getTime() - 1);
+    prevStart = new Date(prevEnd.getTime() - rangeMs);
+    periodLabel = `${start.toISOString().split('T')[0]} to ${end.toISOString().split('T')[0]}`;
+  } else {
+    const presetPeriod = periodParam || 'month';
+    if (!['week', 'month', 'quarter', 'year'].includes(presetPeriod)) {
+      throw AppError.badRequest('period must be week, month, quarter, or year');
+    }
+    const ref = referenceDate ? new Date(referenceDate) : new Date();
+    ({ start, end } = getPeriodWindow(presetPeriod, ref));
+    prevStart = getPeriodWindow(presetPeriod, shiftPeriodBack(presetPeriod, start)).start;
+    prevEnd = new Date(start.getTime() - 1);
+    periodLabel = presetPeriod;
+  }
+
+  const [currentExpenses, previousExpenses, user] = await Promise.all([
+    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: start, lte: end } } }),
+    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
+    prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { preferredCurrency: true } }),
+  ]);
+
+  const currentTotal = currentExpenses.reduce((s, e) => s + e.baseAmount, 0);
+  const previousTotal = previousExpenses.reduce((s, e) => s + e.baseAmount, 0);
+
+  const { categoryDeltas, standoutExpenses } = aiService.computeCategoryDeltas(
+    currentExpenses.map((e) => ({ category: e.category, baseAmount: e.baseAmount, title: e.title })),
+    previousExpenses.map((e) => ({ category: e.category, baseAmount: e.baseAmount }))
+  );
+
+  const explanation = await aiService.generateRootCauseExplanation({
+    periodLabel,
+    currentTotal,
+    previousTotal,
+    currency: user.preferredCurrency || 'USD',
+    categoryDeltas,
+    standoutExpenses,
+  });
+
+  res.json({ success: true, data: { explanation } });
+});
+
+/**
  * POST /api/ai/trip-planner
  */
 export const tripPlanner = asyncHandler(async (req: Request, res: Response) => {
@@ -327,6 +393,30 @@ export const tripPlanner = asyncHandler(async (req: Request, res: Response) => {
     currency: String(currency),
     travelers: Number(travelers),
     interests,
+  });
+
+  res.json({ success: true, data: result });
+});
+
+/**
+ * POST /api/ai/plan-checkpoints
+ * Standalone checkpoint suggestion generation — same inputs as /trip-planner,
+ * used by the "Save as Trip" flow to populate a newly created trip's checkpoints
+ * without needing an existing tripId.
+ */
+export const planCheckpoints = asyncHandler(async (req: Request, res: Response) => {
+  const { destination, days, budget, currency, travelers } = req.body;
+
+  if (!destination || !days || !budget || !currency || !travelers) {
+    throw AppError.badRequest('destination, days, budget, currency, and travelers are required');
+  }
+
+  const result = await aiService.generateCheckpointSuggestions({
+    destination,
+    days: Number(days),
+    budget: Number(budget),
+    currency: String(currency),
+    travelers: Number(travelers),
   });
 
   res.json({ success: true, data: result });
@@ -401,6 +491,38 @@ export const tripPlannerStream = async (req: Request, res: Response) => {
     );
   } catch (err) {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to generate itinerary.' })}\n\n`);
+  }
+
+  res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
+  res.end();
+};
+
+/**
+ * POST /api/ai/trip-planner/refine/stream
+ * SSE — streams a revised itinerary given the current one + a change instruction.
+ */
+export const tripPlannerRefineStream = async (req: Request, res: Response) => {
+  const { currentItinerary, instruction } = req.body;
+
+  if (!currentItinerary || !instruction) {
+    res.status(400).json({ success: false, error: { message: 'currentItinerary and instruction are required' } });
+    return;
+  }
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.flushHeaders();
+  req.socket?.setNoDelay(true);
+
+  try {
+    await aiService.generateTripPlanRefineStream(
+      { currentItinerary: String(currentItinerary), instruction: String(instruction) },
+      (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
+    );
+  } catch {
+    res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to refine itinerary.' })}\n\n`);
   }
 
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -576,6 +698,26 @@ export const parseNaturalLanguage = asyncHandler(async (req: Request, res: Respo
   const parsed = await aiService.parseNaturalLanguageExpense(text);
 
   res.json({ success: true, data: parsed });
+});
+
+/**
+ * POST /api/ai/packing-list
+ */
+export const packingList = asyncHandler(async (req: Request, res: Response) => {
+  const { destination, days, startDate, travelers } = req.body;
+
+  if (!destination || !days || !travelers) {
+    throw AppError.badRequest('destination, days, and travelers are required');
+  }
+
+  const result = await aiService.generatePackingList({
+    destination,
+    days: Number(days),
+    startDate: startDate ? String(startDate) : undefined,
+    travelers: Number(travelers),
+  });
+
+  res.json({ success: true, data: result });
 });
 
 /**

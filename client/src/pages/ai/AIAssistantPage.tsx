@@ -1,24 +1,150 @@
 import { useState, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router';
 import { aiService } from '@/services/aiService';
+import { useCreateTrip } from '@/hooks/useTrips';
+import { checkpointService } from '@/services/checkpointService';
+import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import {
-  Sparkles, MapPinned,
+  Sparkles, MapPinned, Luggage,
   Loader2, FileText, Printer, CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import Modal from '@/components/ui/Modal';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 
 export default function AIAssistantPage() {
+  // Shared trip inputs (Trip Planner + Packing List both read from this)
+  const [plannerForm, setPlannerForm] = useState({
+    destination: '', days: '7', budget: '1000', currency: 'USD', travelers: '2',
+    startDate: new Date().toISOString().split('T')[0],
+  });
+  const [hubTab, setHubTab] = useState<'planner' | 'packing'>('planner');
+
+  // Packing List
+  const [packingCategories, setPackingCategories] = useState<{ name: string; items: string[] }[]>([]);
+  const [packingLoading, setPackingLoading] = useState(false);
+  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
+
+  const packingListKey = useCallback(() => {
+    const raw = `${plannerForm.destination}|${plannerForm.days}|${plannerForm.startDate}|${plannerForm.travelers}`;
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+      hash = (hash * 31 + raw.charCodeAt(i)) | 0;
+    }
+    return `packing-list-${hash}`;
+  }, [plannerForm.destination, plannerForm.days, plannerForm.startDate, plannerForm.travelers]);
+
+  const handleGeneratePackingList = async () => {
+    if (!plannerForm.destination) return;
+    setPackingLoading(true);
+    try {
+      const result = await aiService.packingList({
+        destination: plannerForm.destination,
+        days: Number(plannerForm.days),
+        startDate: plannerForm.startDate || undefined,
+        travelers: Number(plannerForm.travelers),
+      });
+      setPackingCategories(result.categories);
+      const key = packingListKey();
+      const stored = localStorage.getItem(key);
+      setCheckedItems(stored ? JSON.parse(stored) : {});
+    } finally {
+      setPackingLoading(false);
+    }
+  };
+
+  const toggleItem = (item: string) => {
+    setCheckedItems((prev) => {
+      const next = { ...prev, [item]: !prev[item] };
+      localStorage.setItem(packingListKey(), JSON.stringify(next));
+      return next;
+    });
+  };
+
   // Trip Planner
-  const [plannerForm, setPlannerForm] = useState({ destination: '', days: '7', budget: '1000', currency: 'USD', travelers: '2' });
   const [plannerStreaming, setPlannerStreaming] = useState(false);
   const [plannerText, setPlannerText] = useState('');
   const plannerRef = useRef<HTMLDivElement>(null);
+
+  const [refineMessages, setRefineMessages] = useState<{ instruction: string }[]>([]);
+  const [refineInput, setRefineInput] = useState('');
+  const [refining, setRefining] = useState(false);
+
+  const handleRefine = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refineInput.trim() || refining) return;
+    const instruction = refineInput.trim();
+    setRefineMessages((prev) => [...prev, { instruction }]);
+    setRefineInput('');
+    setRefining(true);
+    setPlannerStreaming(true);
+    setPlannerText('');
+    try {
+      await aiService.tripPlannerRefineStream(
+        { currentItinerary: plannerText, instruction },
+        (chunk) => setPlannerText((prev) => prev + chunk)
+      );
+    } catch {
+      setPlannerText('Failed to refine itinerary. Please try again.');
+    } finally {
+      setRefining(false);
+      setPlannerStreaming(false);
+    }
+  };
+
+  const navigate = useNavigate();
+  const createTrip = useCreateTrip();
+  const [saveModalOpen, setSaveModalOpen] = useState(false);
+  const [saveTripName, setSaveTripName] = useState('');
+  const [savingTrip, setSavingTrip] = useState(false);
+
+  const openSaveModal = () => {
+    setSaveTripName(plannerForm.destination);
+    setSaveModalOpen(true);
+  };
+
+  const handleSaveAsTrip = async () => {
+    if (!saveTripName.trim()) return;
+    setSavingTrip(true);
+    try {
+      const days = Number(plannerForm.days);
+      const start = new Date(plannerForm.startDate || new Date().toISOString().split('T')[0]);
+      const end = new Date(start);
+      end.setDate(end.getDate() + days);
+
+      const trip = await createTrip.mutateAsync({
+        name: saveTripName.trim(),
+        destination: plannerForm.destination,
+        startDate: start.toISOString(),
+        endDate: end.toISOString(),
+        budget: Number(plannerForm.budget),
+        budgetCurrency: plannerForm.currency,
+      });
+
+      const checkpoints = await aiService.planCheckpoints({
+        destination: plannerForm.destination,
+        days,
+        budget: Number(plannerForm.budget),
+        currency: plannerForm.currency,
+        travelers: Number(plannerForm.travelers),
+      });
+
+      if (checkpoints.length > 0) {
+        await checkpointService.createBulk(trip.id, checkpoints);
+      }
+
+      setSaveModalOpen(false);
+      navigate(`/trips/${trip.id}`);
+    } finally {
+      setSavingTrip(false);
+    }
+  };
 
   const downloadPlanAsText = useCallback(() => {
     const blob = new Blob([plannerText], { type: 'text/markdown;charset=utf-8' });
@@ -92,16 +218,16 @@ ${content}
           <MapPinned className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">Trip Planner</h1>
+          <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">AI Assistant</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Get a detailed day-by-day itinerary powered by AI
+            Plan itineraries and pack smart, powered by AI
           </p>
         </div>
       </div>
 
       <Card>
         <CardContent className="p-6 space-y-5">
-          {/* Form */}
+          {/* Shared trip inputs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Destination *</Label>
@@ -137,110 +263,241 @@ ${content}
               <Label>Travelers</Label>
               <Input type="number" value={plannerForm.travelers} onChange={(e) => setPlannerForm((p) => ({ ...p, travelers: e.target.value }))} min="1" className="mt-1.5" />
             </div>
+            <div>
+              <Label>Start Date</Label>
+              <Input
+                type="date"
+                value={plannerForm.startDate}
+                onChange={(e) => setPlannerForm((p) => ({ ...p, startDate: e.target.value }))}
+                className="mt-1.5"
+              />
+            </div>
           </div>
 
-          <Button
-            onClick={handleGeneratePlan}
-            disabled={plannerStreaming || !plannerForm.destination}
-            className="w-full"
-          >
-            {plannerStreaming
-              ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating Itinerary…</>
-              : <><Sparkles className="h-4 w-4" /> Generate Trip Itinerary</>
-            }
-          </Button>
-
-          {/* Loading banner — before first token arrives */}
-          {plannerStreaming && !plannerText && (
-            <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3">
-              <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium">Creating your itinerary</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Analysing destination, budget &amp; travel preferences…</p>
-              </div>
+          {/* Pill tab bar */}
+          <div className="overflow-x-auto -mx-2 px-2">
+            <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
+              {(
+                [
+                  { id: 'planner' as const, label: 'Trip Planner', icon: MapPinned },
+                  { id: 'packing' as const, label: 'Packing List', icon: Luggage },
+                ]
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  onClick={() => setHubTab(tab.id)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                    hubTab === tab.id
+                      ? 'bg-background shadow-sm text-foreground'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
+                  )}
+                >
+                  <tab.icon className="h-3.5 w-3.5" />
+                  {tab.label}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
 
-          {/* Itinerary output */}
-          {plannerText && (
-            <div className="space-y-3">
+          {hubTab === 'planner' && (
+            <div className="space-y-5">
+              <Button
+                onClick={handleGeneratePlan}
+                disabled={plannerStreaming || !plannerForm.destination}
+                className="w-full"
+              >
+                {plannerStreaming
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating Itinerary…</>
+                  : <><Sparkles className="h-4 w-4" /> Generate Trip Itinerary</>
+                }
+              </Button>
 
-              {/* Streaming status banner */}
-              {plannerStreaming ? (
-                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2.5 text-sm">
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
-                  <span className="text-muted-foreground">Writing itinerary…</span>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
-                    <span>Itinerary ready</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={downloadPlanAsText}>
-                      <FileText className="h-3.5 w-3.5" /> Text
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={downloadPlanAsPdf}>
-                      <Printer className="h-3.5 w-3.5" /> PDF
-                    </Button>
+              {/* Loading banner — before first token arrives */}
+              {plannerStreaming && !plannerText && (
+                <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-primary shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium">Creating your itinerary</p>
+                    <p className="text-xs text-muted-foreground mt-0.5">Analysing destination, budget &amp; travel preferences…</p>
                   </div>
                 </div>
               )}
 
-              {/* Content card */}
-              <Card>
-                <CardContent className="p-6">
-                  <div ref={plannerRef}>
-                    <ReactMarkdown
-                      components={{
-                        h1: ({ children }) => <h1 className="text-xl font-bold mt-1 mb-3 text-foreground leading-snug">{children}</h1>,
-                        h2: ({ children }) => <h2 className="text-base font-semibold mt-5 mb-2 pb-1 border-b border-border text-foreground">{children}</h2>,
-                        h3: ({ children }) => <h3 className="text-sm font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>,
-                        h4: ({ children }) => <h4 className="text-sm font-medium mt-3 mb-1 text-foreground">{children}</h4>,
-                        p: ({ children }) => <p className="text-sm leading-relaxed mb-2.5 text-foreground/90">{children}</p>,
-                        strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                        em: ({ children }) => <em className="italic text-foreground/80">{children}</em>,
-                        ul: ({ children }) => <ul className="text-sm mb-3 ml-4 space-y-1 list-disc">{children}</ul>,
-                        ol: ({ children }) => <ol className="text-sm mb-3 ml-4 space-y-1 list-decimal">{children}</ol>,
-                        li: ({ children }) => <li className="leading-relaxed text-foreground/90">{children}</li>,
-                        hr: () => <hr className="my-4 border-border" />,
-                        code: ({ children }) => <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">{children}</code>,
-                        blockquote: ({ children }) => (
-                          <blockquote className="border-l-2 border-primary/50 pl-3 italic text-muted-foreground my-3">{children}</blockquote>
-                        ),
-                        table: ({ children }) => (
-                          <div className="overflow-x-auto my-3">
-                            <table className="w-full text-sm border-collapse">{children}</table>
-                          </div>
-                        ),
-                        thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
-                        th: ({ children }) => <th className="text-left px-3 py-2 font-semibold text-foreground border-b border-border">{children}</th>,
-                        td: ({ children }) => <td className="px-3 py-2 border-b border-border text-foreground/80">{children}</td>,
-                      }}
-                    >
-                      {plannerText}
-                    </ReactMarkdown>
-                  </div>
-                  {/* Streaming cursor */}
-                  {plannerStreaming && (
-                    <span className="inline-block w-2 h-4 bg-primary/70 animate-pulse rounded-sm ml-0.5 align-middle" />
-                  )}
-                </CardContent>
-              </Card>
+              {/* Itinerary output */}
+              {plannerText && (
+                <div className="space-y-3">
 
-              {/* Download row below content — repeated for easy access after scrolling */}
-              {!plannerStreaming && (
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" size="sm" onClick={downloadPlanAsPdf}>
-                    <Printer className="h-3.5 w-3.5" /> Download PDF
-                  </Button>
+                  {/* Streaming status banner */}
+                  {plannerStreaming ? (
+                    <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-2.5 text-sm">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
+                      <span className="text-muted-foreground">Writing itinerary…</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
+                        <span>Itinerary ready</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm" onClick={downloadPlanAsText}>
+                          <FileText className="h-3.5 w-3.5" /> Text
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={downloadPlanAsPdf}>
+                          <Printer className="h-3.5 w-3.5" /> PDF
+                        </Button>
+                        <Button size="sm" onClick={openSaveModal}>
+                          Save as Trip
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Content card */}
+                  <Card>
+                    <CardContent className="p-6">
+                      <div ref={plannerRef}>
+                        <ReactMarkdown
+                          components={{
+                            h1: ({ children }) => <h1 className="text-xl font-bold mt-1 mb-3 text-foreground leading-snug">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-base font-semibold mt-5 mb-2 pb-1 border-b border-border text-foreground">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-sm font-semibold mt-4 mb-1.5 text-foreground">{children}</h3>,
+                            h4: ({ children }) => <h4 className="text-sm font-medium mt-3 mb-1 text-foreground">{children}</h4>,
+                            p: ({ children }) => <p className="text-sm leading-relaxed mb-2.5 text-foreground/90">{children}</p>,
+                            strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                            em: ({ children }) => <em className="italic text-foreground/80">{children}</em>,
+                            ul: ({ children }) => <ul className="text-sm mb-3 ml-4 space-y-1 list-disc">{children}</ul>,
+                            ol: ({ children }) => <ol className="text-sm mb-3 ml-4 space-y-1 list-decimal">{children}</ol>,
+                            li: ({ children }) => <li className="leading-relaxed text-foreground/90">{children}</li>,
+                            hr: () => <hr className="my-4 border-border" />,
+                            code: ({ children }) => <code className="bg-muted rounded px-1.5 py-0.5 text-xs font-mono">{children}</code>,
+                            blockquote: ({ children }) => (
+                              <blockquote className="border-l-2 border-primary/50 pl-3 italic text-muted-foreground my-3">{children}</blockquote>
+                            ),
+                            table: ({ children }) => (
+                              <div className="overflow-x-auto my-3">
+                                <table className="w-full text-sm border-collapse">{children}</table>
+                              </div>
+                            ),
+                            thead: ({ children }) => <thead className="bg-muted/50">{children}</thead>,
+                            th: ({ children }) => <th className="text-left px-3 py-2 font-semibold text-foreground border-b border-border">{children}</th>,
+                            td: ({ children }) => <td className="px-3 py-2 border-b border-border text-foreground/80">{children}</td>,
+                          }}
+                        >
+                          {plannerText}
+                        </ReactMarkdown>
+                      </div>
+                      {/* Streaming cursor */}
+                      {plannerStreaming && (
+                        <span className="inline-block w-2 h-4 bg-primary/70 animate-pulse rounded-sm ml-0.5 align-middle" />
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  {/* Refinement chat — only once the itinerary has finished streaming */}
+                  {!plannerStreaming && (
+                    <Card>
+                      <CardContent className="p-4 space-y-3">
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ask for changes</p>
+                        {refineMessages.length > 0 && (
+                          <ul className="space-y-1.5">
+                            {refineMessages.map((m, i) => (
+                              <li key={i} className="text-sm rounded-lg bg-muted px-3 py-2">{m.instruction}</li>
+                            ))}
+                          </ul>
+                        )}
+                        <form onSubmit={handleRefine} className="flex gap-2">
+                          <Input
+                            value={refineInput}
+                            onChange={(e) => setRefineInput(e.target.value)}
+                            placeholder="e.g. make day 3 cheaper"
+                            disabled={refining}
+                          />
+                          <Button type="submit" disabled={refining || !refineInput.trim()}>
+                            {refining ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Ask'}
+                          </Button>
+                        </form>
+                      </CardContent>
+                    </Card>
+                  )}
+
+                  {/* Download row below content — repeated for easy access after scrolling */}
+                  {!plannerStreaming && (
+                    <div className="flex justify-end gap-2">
+                      <Button variant="outline" size="sm" onClick={downloadPlanAsPdf}>
+                        <Printer className="h-3.5 w-3.5" /> Download PDF
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {hubTab === 'packing' && (
+            <div className="space-y-4">
+              <Button
+                onClick={handleGeneratePackingList}
+                disabled={packingLoading || !plannerForm.destination}
+                className="w-full"
+              >
+                {packingLoading
+                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating Packing List…</>
+                  : <><Luggage className="h-4 w-4" /> Generate Packing List</>
+                }
+              </Button>
+
+              {packingCategories.length > 0 && (
+                <div className="grid sm:grid-cols-2 gap-4">
+                  {packingCategories.map((cat) => (
+                    <Card key={cat.name}>
+                      <CardContent className="p-4">
+                        <p className="text-sm font-semibold mb-2">{cat.name}</p>
+                        <ul className="space-y-1.5">
+                          {cat.items.map((item) => (
+                            <li key={item} className="flex items-center gap-2 text-sm">
+                              <input
+                                type="checkbox"
+                                checked={!!checkedItems[item]}
+                                onChange={() => toggleItem(item)}
+                                className="h-4 w-4 rounded border-border accent-primary"
+                              />
+                              <span className={cn(checkedItems[item] && 'line-through text-muted-foreground')}>
+                                {item}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                    </Card>
+                  ))}
                 </div>
               )}
             </div>
           )}
         </CardContent>
       </Card>
+
+      <Modal open={saveModalOpen} onClose={() => setSaveModalOpen(false)} title="Save as Trip">
+        <div className="space-y-4">
+          <div>
+            <Label>Trip Name</Label>
+            <Input
+              value={saveTripName}
+              onChange={(e) => setSaveTripName(e.target.value)}
+              className="mt-1.5"
+              placeholder="e.g. Tokyo Adventure"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Start date, destination, budget, and currency are taken from the form above. We'll also generate suggested checkpoints for this trip.
+          </p>
+          <Button onClick={handleSaveAsTrip} disabled={savingTrip || !saveTripName.trim()} className="w-full">
+            {savingTrip ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : 'Create Trip'}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 }

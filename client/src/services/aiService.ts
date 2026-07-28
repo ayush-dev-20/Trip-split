@@ -1,6 +1,6 @@
 import api from './api';
 import { getClerkToken } from '@/lib/clerkHelper';
-import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint, AIBudgetStatus, AIPredictedCost } from '@/types';
+import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint, AIBudgetStatus, AIPredictedCost, PackingListResponse, RootCauseExplanation } from '@/types';
 
 /**
  * Low-level SSE helper — POSTs to `url`, then async-iterates the event stream.
@@ -73,6 +73,15 @@ export const aiService = {
   insightsPredictedCost: (scope: 'trip' | 'personal', tripId?: string) =>
     api.post<{ success: boolean; data: AIPredictedCost }>('/ai/insights/predicted-cost', { scope, tripId }).then((r) => r.data.data),
 
+  packingList: (params: { destination: string; days: number; startDate?: string; travelers: number }) =>
+    api.post<{ success: boolean; data: PackingListResponse }>('/ai/packing-list', params).then((r) => r.data.data),
+
+  insightsRootCause: (params: { period?: string; startDate?: string; endDate?: string }) =>
+    api.post<{ success: boolean; data: RootCauseExplanation }>('/ai/insights/root-cause', params).then((r) => r.data.data.explanation),
+
+  planCheckpoints: (params: { destination: string; days: number; budget: number; currency: string; travelers: number }) =>
+    api.post<{ success: boolean; data: SuggestedCheckpoint[] }>('/ai/plan-checkpoints', params).then((r) => r.data.data),
+
   tripPlanner: (destination: string, days: number, budget: number, currency: string, travelers: number) =>
     api.post<{ success: boolean; data: TripPlan }>('/ai/trip-planner', { destination, days, budget, currency, travelers }).then((r) => r.data.data),
 
@@ -110,6 +119,22 @@ export const aiService = {
       if (event.type === 'chunk') onChunk(event.text as string);
       else if (event.type === 'itinerary_complete') onItineraryComplete?.();
       else if (event.type === 'checkpoints') onCheckpoints(event.data as SuggestedCheckpoint[]);
+      else if (event.type === 'done') onDone?.();
+    }
+  },
+
+  /**
+   * Streaming itinerary refinement — sends the current itinerary + a change
+   * instruction, calls `onChunk` for each replacement markdown token. Stateless
+   * per call (no chat history sent).
+   */
+  tripPlannerRefineStream: async (
+    params: { currentItinerary: string; instruction: string },
+    onChunk: (text: string) => void,
+    onDone?: () => void
+  ): Promise<void> => {
+    for await (const event of streamSSE('/api/ai/trip-planner/refine/stream', params)) {
+      if (event.type === 'chunk') onChunk(event.text as string);
       else if (event.type === 'done') onDone?.();
     }
   },

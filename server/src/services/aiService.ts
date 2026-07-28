@@ -324,6 +324,82 @@ Data: ${JSON.stringify(data)}`,
   );
 }
 
+/**
+ * Pure helper — given current/previous period expenses, computes per-category
+ * spend deltas and flags "standout" expenses in the current period: any single
+ * expense whose amount is more than 2x the average of the OTHER expenses in its
+ * own category this period (catches one-off big-ticket purchases like a flight).
+ */
+export function computeCategoryDeltas(
+  current: { category: string; baseAmount: number; title: string }[],
+  previous: { category: string; baseAmount: number }[]
+): {
+  categoryDeltas: { category: string; current: number; previous: number }[];
+  standoutExpenses: { title: string; amount: number; category: string }[];
+} {
+  const currentByCategory = new Map<string, number>();
+  for (const e of current) {
+    currentByCategory.set(e.category, (currentByCategory.get(e.category) || 0) + e.baseAmount);
+  }
+  const previousByCategory = new Map<string, number>();
+  for (const e of previous) {
+    previousByCategory.set(e.category, (previousByCategory.get(e.category) || 0) + e.baseAmount);
+  }
+
+  const categoryDeltas = Array.from(currentByCategory.entries()).map(([category, currentTotal]) => ({
+    category,
+    current: currentTotal,
+    previous: previousByCategory.get(category) || 0,
+  }));
+
+  const standoutExpenses: { title: string; amount: number; category: string }[] = [];
+  const byCategory = new Map<string, { category: string; baseAmount: number; title: string }[]>();
+  for (const e of current) {
+    if (!byCategory.has(e.category)) byCategory.set(e.category, []);
+    byCategory.get(e.category)!.push(e);
+  }
+  for (const expenses of byCategory.values()) {
+    for (const expense of expenses) {
+      const others = expenses.filter((e) => e !== expense);
+      if (others.length === 0) continue;
+      const othersAvg = others.reduce((s, e) => s + e.baseAmount, 0) / others.length;
+      if (othersAvg > 0 && expense.baseAmount > othersAvg * 2) {
+        standoutExpenses.push({ title: expense.title, amount: expense.baseAmount, category: expense.category });
+      }
+    }
+  }
+
+  return { categoryDeltas, standoutExpenses };
+}
+
+/**
+ * AI Root-Cause Spending — one-sentence natural-language explanation of why
+ * spending changed vs. the previous period, driven by category deltas and
+ * standout individual expenses (both already computed server-side).
+ */
+export async function generateRootCauseExplanation(params: {
+  periodLabel: string;
+  currentTotal: number;
+  previousTotal: number;
+  currency: string;
+  categoryDeltas: { category: string; current: number; previous: number }[];
+  standoutExpenses: { title: string; amount: number; category: string }[];
+}): Promise<string> {
+  return askText(
+    `You are a personal finance assistant. Explain WHY the user's spending changed between two periods, in ONE tight sentence, in this exact style:
+"Your spending in June was 25% higher than May, primarily driven by a ₹5,000 flight purchase and 2 extra restaurant visits."
+
+Data for ${params.periodLabel}:
+Current total: ${params.currency} ${params.currentTotal}
+Previous total: ${params.currency} ${params.previousTotal}
+Category deltas (current vs previous): ${JSON.stringify(params.categoryDeltas)}
+Standout individual expenses this period: ${JSON.stringify(params.standoutExpenses)}
+
+Return ONLY the one sentence. No markdown, no preamble, no quotes around it.`,
+    'Unable to generate an explanation right now.'
+  );
+}
+
 type TripPlanParams = {
   destination: string;
   days: number;
@@ -408,6 +484,39 @@ export async function generateTripPlanStream(
 }
 
 /**
+ * AI Trip Planner Refinement — Streaming. Given the currently displayed itinerary
+ * and a follow-up instruction, returns a complete revised itinerary in the same
+ * format. Stateless per call: the itinerary text itself carries all prior state,
+ * so no chat history needs to be threaded through.
+ */
+export async function generateTripPlanRefineStream(
+  params: { currentItinerary: string; instruction: string },
+  onChunk: (text: string) => void
+): Promise<void> {
+  const prompt = `You are an expert travel planner. Below is a day-by-day trip itinerary you previously wrote, followed by a change the traveler wants.
+
+## Current Itinerary
+${params.currentItinerary}
+
+## Requested Change
+${params.instruction}
+
+Rewrite the COMPLETE itinerary incorporating this change, in the exact same Markdown structure and level of detail as the current itinerary (same section headings: Budget Overview, Day-by-day sections, Do's & Don'ts, Pro Tips). Do not just describe the change — output the full revised itinerary. Do NOT wrap the response in code fences. Return raw Markdown only.`;
+
+  try {
+    const model = getModel();
+    const result = await model.generateContentStream(prompt);
+    for await (const chunk of result.stream) {
+      const text = chunk.text();
+      if (text) onChunk(text);
+    }
+  } catch (err) {
+    logger.error('AIService', 'Trip plan refine stream error', { error: String(err) });
+    onChunk('\n\n_Unable to refine the itinerary right now. Please try again._');
+  }
+}
+
+/**
  * AI Note Generation — streams a markdown response for a free-form prompt,
  * informed by the given trip's context. Used by NotesPage's "Ask AI" feature.
  */
@@ -466,6 +575,40 @@ Return a JSON array of objects with EXACTLY these fields:
 
 Suggest 3-5 items per day. Return ONLY the JSON array, no wrapping object.`,
     []
+  );
+}
+
+export interface PackingListCategory {
+  name: string;
+  items: string[];
+}
+
+export interface PackingListResponse {
+  categories: PackingListCategory[];
+}
+
+/**
+ * AI Packing List — categorized packing suggestions for a trip.
+ */
+export async function generatePackingList(params: {
+  destination: string;
+  days: number;
+  startDate?: string;
+  travelers: number;
+}): Promise<PackingListResponse> {
+  const seasonHint = params.startDate
+    ? `The trip starts on ${params.startDate} — infer the likely season/weather at the destination on that date and tailor clothing/gear accordingly.`
+    : `No start date was given — suggest weather-neutral items and note destination-specific gear that applies year-round.`;
+
+  return askJSON(
+    `You are a travel packing expert. Create a packing list for a ${params.days}-day trip to ${params.destination} for ${params.travelers} traveler(s).
+${seasonHint}
+
+Return a JSON object: { "categories": [ { "name": string, "items": string[] } ] }
+Include AT LEAST these categories, in this order: "Clothing", "Documents", "Electronics", "Toiletries", "Destination-Specific".
+"Destination-Specific" must contain items genuinely specific to ${params.destination} (e.g. plug adapter type, monsoon gear, altitude medication, visa paperwork) — not generic items already covered by the other categories.
+Each category should have 4-10 items. Return ONLY the JSON object, no markdown.`,
+    { categories: [] }
   );
 }
 

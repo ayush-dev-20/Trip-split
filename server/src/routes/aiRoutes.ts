@@ -13,10 +13,14 @@ router.post('/categorize', requireFeature('aiCategorizer'), ai.categorizeExpense
 router.post('/insights/spending', requireFeature('aiSpendingInsights'), ai.spendingInsights);
 router.post('/insights/budget-status', requireFeature('aiBudgetAdvisor'), ai.budgetStatus);
 router.post('/insights/predicted-cost', requireFeature('aiBudgetAdvisor'), ai.predictedCost);
+router.post('/insights/root-cause', requireFeature('aiSpendingInsights'), ai.rootCauseSpending);
 router.post('/trip-planner', requireFeature('aiTripPlanner'), ai.tripPlanner);
 router.post('/trip-planner/stream', requireFeature('aiTripPlanner'), ai.tripPlannerStream);
 router.post('/trip-planner-for-trip', requireFeature('aiTripPlanner'), ai.tripPlannerForTrip);
 router.post('/trip-planner-for-trip/stream', requireFeature('aiTripPlanner'), ai.tripPlannerForTripStream);
+router.post('/packing-list', requireFeature('aiTripPlanner'), ai.packingList);
+router.post('/trip-planner/refine/stream', requireFeature('aiTripPlanner'), ai.tripPlannerRefineStream);
+router.post('/plan-checkpoints', requireFeature('aiTripPlanner'), ai.planCheckpoints);
 router.post('/notes/generate/stream', requireFeature('aiNoteGeneration'), ai.generateNoteContentStream);
 router.post('/parse-expense', requireFeature('aiNaturalLanguage'), ai.parseNaturalLanguage);
 router.post('/chat', requireFeature('aiChatbot'), ai.chatbot);

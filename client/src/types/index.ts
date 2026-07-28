@@ -520,6 +520,19 @@ export interface AIPredictedCost {
   reasoning: string;
 }
 
+export interface PackingListCategory {
+  name: string;
+  items: string[];
+}
+
+export interface PackingListResponse {
+  categories: PackingListCategory[];
+}
+
+export interface RootCauseExplanation {
+  explanation: string;
+}
+
 export interface TripBalances {
   balances: Balance[];
   simplifiedDebts: SimplifiedDebt[];

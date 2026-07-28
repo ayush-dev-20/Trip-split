@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
   History, Trash2, Loader2, Pencil, MessageCircle, Search, X, RepeatIcon, Download,
-  BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, NotebookPen,
+  BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, NotebookPen, Sparkles,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import {
@@ -1003,6 +1003,27 @@ function PersonalAnalyticsTab() {
       : { period: personalPeriod }
   );
 
+  const [rootCause, setRootCause] = useState<string | null>(null);
+  const [rootCauseLoading, setRootCauseLoading] = useState(false);
+  const [rootCauseError, setRootCauseError] = useState(false);
+
+  const handleExplain = async () => {
+    setRootCauseLoading(true);
+    setRootCauseError(false);
+    try {
+      const explanation = await aiService.insightsRootCause(
+        personalCustomActive
+          ? { startDate: personalStartDate, endDate: personalEndDate }
+          : { period: personalPeriod }
+      );
+      setRootCause(explanation);
+    } catch {
+      setRootCauseError(true);
+    } finally {
+      setRootCauseLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Period selector — disabled visually once a custom range is active */}
@@ -1097,6 +1118,26 @@ function PersonalAnalyticsTab() {
               </p>
             </Card>
           </div>
+
+          {/* Root-cause explanation — on-demand, mirrors AIInsightsPanel's "Generate Insights" convention */}
+          <Card className="p-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary" />
+                <p className="text-sm font-semibold">Why did my spending change?</p>
+              </div>
+              <Button size="sm" onClick={handleExplain} disabled={rootCauseLoading}>
+                {rootCauseLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {rootCause ? 'Regenerate' : 'Explain this'}
+              </Button>
+            </div>
+            {rootCauseError && (
+              <p className="text-xs text-muted-foreground mt-2">Unable to generate an explanation right now.</p>
+            )}
+            {rootCause && !rootCauseError && (
+              <p className="text-sm mt-2 leading-relaxed">{rootCause}</p>
+            )}
+          </Card>
 
           {/* Time series */}
           <ChartCard title={

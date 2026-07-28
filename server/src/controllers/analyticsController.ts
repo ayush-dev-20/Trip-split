@@ -857,9 +857,9 @@ export const categoryTrends = asyncHandler(async (req: Request, res: Response) =
 // PERSONAL ANALYTICS
 // ──────────────────────────────────────────────────────────────────────────────
 
-type Period = 'week' | 'month' | 'quarter' | 'year' | 'custom';
+export type Period = 'week' | 'month' | 'quarter' | 'year' | 'custom';
 
-function getPeriodWindow(period: Exclude<Period, 'custom'>, ref: Date): { start: Date; end: Date } {
+export function getPeriodWindow(period: Exclude<Period, 'custom'>, ref: Date): { start: Date; end: Date } {
   const d = new Date(ref);
   switch (period) {
     case 'week': {
@@ -894,7 +894,7 @@ function getPeriodWindow(period: Exclude<Period, 'custom'>, ref: Date): { start:
   }
 }
 
-function shiftPeriodBack(period: Period, start: Date): Date {
+export function shiftPeriodBack(period: Period, start: Date): Date {
   const d = new Date(start);
   switch (period) {
     case 'week':    d.setDate(d.getDate() - 7);    break;
