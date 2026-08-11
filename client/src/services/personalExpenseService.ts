@@ -14,12 +14,30 @@ export interface ExportParams {
   endDate?: string;
 }
 
-/** Drops undefined values and returns a leading-"?" query string (or ''). */
-function buildQuery(params?: object) {
-  const qs = new URLSearchParams(
-    Object.entries(params ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined)
-  ).toString();
-  return qs ? `?${qs}` : '';
+/**
+ * Downloads a file through the API client and saves it via a temporary anchor.
+ *
+ * Deliberately not window.open(): the response is Content-Disposition:
+ * attachment, so the browser downloads it and leaves the freshly-opened tab
+ * blank — and in an installed PWA that's a stranded empty window. Going
+ * through axios also means the Clerk auth header is attached, rather than
+ * relying on the session cookie riding along with a raw navigation.
+ */
+async function downloadFile(path: string, params: object | undefined, fallbackName: string) {
+  // axios omits undefined params, so filters that aren't set simply drop out.
+  const res = await api.get(path, { params, responseType: 'blob' });
+
+  const disposition = res.headers['content-disposition'] as string | undefined;
+  const filename = disposition?.match(/filename="?([^";]+)"?/)?.[1] ?? fallbackName;
+
+  const blobUrl = URL.createObjectURL(res.data as Blob);
+  const anchor = document.createElement('a');
+  anchor.href = blobUrl;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(blobUrl);
 }
 
 export const personalExpenseService = {
@@ -72,13 +90,11 @@ export const personalExpenseService = {
       .get<{ success: boolean; data: PersonalBudgetStatus }>('/personal-expenses/budget-status')
       .then((r) => r.data.data),
 
-  exportCSV: (params?: ExportParams) => {
-    window.open(`/api/personal-expenses/export/csv${buildQuery(params)}`, '_blank');
-  },
+  exportCSV: (params?: ExportParams) =>
+    downloadFile('/personal-expenses/export/csv', params, 'personal_expenses.csv'),
 
-  exportPDF: (params?: ExportParams) => {
-    window.open(`/api/personal-expenses/export/pdf${buildQuery(params)}`, '_blank');
-  },
+  exportPDF: (params?: ExportParams) =>
+    downloadFile('/personal-expenses/export/pdf', params, 'personal_expenses.pdf'),
 
   /**
    * Analytics report (summary, category breakdown, biggest expenses) as a PDF.
@@ -88,9 +104,8 @@ export const personalExpenseService = {
     period?: PersonalAnalyticsPeriod;
     startDate?: string;
     endDate?: string;
-  }) => {
-    window.open(`/api/analytics/personal/export/pdf${buildQuery(params)}`, '_blank');
-  },
+  }) =>
+    downloadFile('/analytics/personal/export/pdf', params, 'personal_analytics.pdf'),
 
   // Pass either { period, referenceDate? } or { startDate, endDate } (custom
   // range takes priority server-side if both happen to be present).

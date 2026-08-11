@@ -1179,40 +1179,80 @@ export const exportPersonalAnalyticsPDF = asyncHandler(async (req: Request, res:
     ? 'no change vs previous period'
     : `${data.comparisonToPrev.direction === 'up' ? 'up' : 'down'} ${Math.abs(data.comparisonToPrev.changePercent)}% vs previous period (${money(data.comparisonToPrev.previousTotal)})`;
 
+  // Two real columns — space-padding doesn't align in a proportional font.
+  const summaryRows: [string, string][] = [
+    ['Total spent', money(data.totalSpent)],
+    ['Transactions', String(data.transactionCount)],
+    ['Daily average', money(data.avgPerDay)],
+    ['Top category', data.topCategory],
+    ['Trend', changeLabel],
+  ];
   doc.fontSize(11).font('Helvetica');
-  doc.text(`Total spent:        ${money(data.totalSpent)}`);
-  doc.text(`Transactions:       ${data.transactionCount}`);
-  doc.text(`Daily average:      ${money(data.avgPerDay)}`);
-  doc.text(`Top category:       ${data.topCategory}`);
-  doc.text(`Trend:              ${changeLabel}`);
+  let summaryY = doc.y;
+  for (const [label, value] of summaryRows) {
+    doc.fillColor('#555').text(label, 50, summaryY, { width: 120, lineBreak: false });
+    doc.fillColor('#000').text(value, 175, summaryY, { width: 370, lineBreak: false });
+    summaryY += 16;
+  }
+  // Positioned text leaves doc.x at the last column, which would then become the
+  // left margin for everything after it — reset both cursors.
+  doc.x = doc.page.margins.left;
+  doc.y = summaryY;
   doc.moveDown(1.5);
 
   // ── Category breakdown ───────────────────────────────────────────────────
   if (data.categoryBreakdown.length > 0) {
-    doc.fontSize(14).font('Helvetica-Bold').text('By Category');
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#000').text('By Category');
     doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#ddd');
     doc.moveDown(0.5);
 
-    // Column header
-    doc.fontSize(9).font('Helvetica-Bold').fillColor('#555');
-    doc.text('Category', 50, doc.y, { width: 150, continued: true });
-    doc.text('Count', { width: 60, align: 'right', continued: true });
-    doc.text('Average', { width: 100, align: 'right', continued: true });
-    doc.text('Total', { width: 110, align: 'right', continued: true });
-    doc.text('Share', { width: 75, align: 'right' });
-    doc.fillColor('#000').moveDown(0.4);
+    // Fixed column geometry. pdfkit's `continued: true` flows text inline and
+    // ignores `width`, which is what made these columns overlap — so every cell
+    // is drawn at an explicit x/y, with lineBreak disabled so a long value can
+    // never wrap down into the following row.
+    const COLS = [
+      { key: 'category', label: 'Category', x: 50,  w: 145, align: 'left'  as const },
+      { key: 'count',    label: 'Count',    x: 200, w: 45,  align: 'right' as const },
+      { key: 'avg',      label: 'Average',  x: 250, w: 85,  align: 'right' as const },
+      { key: 'total',    label: 'Total',    x: 340, w: 85,  align: 'right' as const },
+      { key: 'share',    label: 'Share',    x: 430, w: 115, align: 'right' as const },
+    ];
+    const ROW_H = 15;
+    const PAGE_BOTTOM = 750;
 
-    doc.font('Helvetica').fontSize(10);
+    let y = doc.y;
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#555');
+    for (const col of COLS) {
+      doc.text(col.label, col.x, y, { width: col.w, align: col.align, lineBreak: false });
+    }
+    y += ROW_H;
+
+    doc.font('Helvetica').fontSize(10).fillColor('#000');
     for (const c of data.categoryBreakdown) {
+      if (y > PAGE_BOTTOM) {
+        doc.addPage();
+        y = 50;
+      }
       const trend = c.changePercent === null
         ? 'new'
         : `${c.direction === 'up' ? '+' : c.direction === 'down' ? '-' : ''}${Math.abs(c.changePercent)}%`;
-      doc.text(c.category, 50, doc.y, { width: 150, continued: true });
-      doc.text(String(c.count), { width: 60, align: 'right', continued: true });
-      doc.text(c.avgPerTransaction.toFixed(2), { width: 100, align: 'right', continued: true });
-      doc.text(c.total.toFixed(2), { width: 110, align: 'right', continued: true });
-      doc.text(`${c.percentage}% (${trend})`, { width: 75, align: 'right' });
+      const values: Record<string, string> = {
+        category: c.category,
+        count: String(c.count),
+        avg: c.avgPerTransaction.toFixed(2),
+        total: c.total.toFixed(2),
+        share: `${c.percentage}% (${trend})`,
+      };
+      for (const col of COLS) {
+        doc.text(values[col.key], col.x, y, { width: col.w, align: col.align, lineBreak: false });
+      }
+      y += ROW_H;
     }
+
+    // Re-sync both cursors — the loop positioned text absolutely, so doc.x is
+    // parked on the last column and doc.y is stale.
+    doc.x = doc.page.margins.left;
+    doc.y = y;
     doc.moveDown(1.5);
   }
 

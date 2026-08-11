@@ -994,6 +994,7 @@ function RecurringTab({
 function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string) => void }) {
   const [personalPeriod, setPersonalPeriod] = useState<PersonalAnalyticsPeriod>('month');
   const [drilldownCategory, setDrilldownCategory] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
 
   // Custom date range. Both fields must be filled for it to take priority
   // over the week/month/quarter/year pills (server does the same "both required" check).
@@ -1083,23 +1084,27 @@ function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string)
           )}
         </div>
 
-        {/* Exports exactly the window selected above, so there's no second
-            date picker to keep in sync. */}
         <Button
           variant="outline"
           size="sm"
           className="sm:ml-auto shrink-0"
-          onClick={() =>
-            personalExpenseService.exportAnalyticsPDF(
-              personalCustomActive
-                ? { startDate: personalStartDate, endDate: personalEndDate }
-                : { period: personalPeriod }
-            )
-          }
+          onClick={() => setExportOpen(true)}
         >
           <Download className="h-3.5 w-3.5 mr-1.5" /> Export PDF
         </Button>
       </div>
+
+      {/* The report needs a bounded window, so "All time" is not offered and
+          the range is always explicit rather than inherited from the pills. */}
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        title="Export analytics report"
+        description="Choose the period the report should cover."
+        formats={['pdf']}
+        allowAllTime={false}
+        onExport={(_format, range) => personalExpenseService.exportAnalyticsPDF(range)}
+      />
 
       {personalLoading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

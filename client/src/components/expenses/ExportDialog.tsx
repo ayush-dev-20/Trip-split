@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FileText, Printer, CalendarRange } from 'lucide-react';
+import { FileText, Printer, CalendarRange, Loader2 } from 'lucide-react';
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -59,29 +59,49 @@ export default function ExportDialog({
   onExport,
   title = 'Export expenses',
   description = 'Choose the period you want to export.',
+  formats = ['csv', 'pdf'],
+  allowAllTime = true,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onExport: (format: 'csv' | 'pdf', range: ExportRange) => void;
+  onExport: (format: 'csv' | 'pdf', range: ExportRange) => Promise<void> | void;
   title?: string;
   description?: string;
+  /** Which download buttons to offer. Analytics reports are PDF-only. */
+  formats?: ('csv' | 'pdf')[];
+  /** Reports that need a bounded window (analytics) opt out of "All time". */
+  allowAllTime?: boolean;
 }) {
   const [preset, setPreset] = useState<PresetId>('last30');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const presets = allowAllTime ? PRESETS : PRESETS.filter((p) => p.id !== 'all');
 
   const isCustom = preset === 'custom';
   const customIncomplete = isCustom && !(customStart && customEnd);
   const customInverted = isCustom && !!customStart && !!customEnd && customStart > customEnd;
-  const disabled = customIncomplete || customInverted;
+  const disabled = customIncomplete || customInverted || busy;
 
   const currentRange = (): ExportRange =>
     isCustom ? { startDate: customStart, endDate: customEnd } : resolvePreset(preset);
 
-  const handleExport = (format: 'csv' | 'pdf') => {
+  const handleExport = async (format: 'csv' | 'pdf') => {
     if (disabled) return;
-    onExport(format, currentRange());
-    onOpenChange(false);
+    setBusy(true);
+    setFailed(false);
+    try {
+      // Stay open until the file actually arrives, so a failure can be shown
+      // rather than the dialog vanishing and nothing downloading.
+      await onExport(format, currentRange());
+      onOpenChange(false);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -96,7 +116,7 @@ export default function ExportDialog({
 
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-2">
-            {PRESETS.map((p) => (
+            {presets.map((p) => (
               <button
                 key={p.id}
                 type="button"
@@ -151,15 +171,25 @@ export default function ExportDialog({
           {preset === 'all' && (
             <p className="text-xs text-muted-foreground">Every expense on record will be included.</p>
           )}
+
+          {failed && (
+            <p className="text-xs text-destructive">
+              The download failed. Please check your connection and try again.
+            </p>
+          )}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-2">
-          <Button variant="outline" onClick={() => handleExport('csv')} disabled={disabled}>
-            <FileText className="h-4 w-4" /> CSV
-          </Button>
-          <Button onClick={() => handleExport('pdf')} disabled={disabled}>
-            <Printer className="h-4 w-4" /> PDF
-          </Button>
+          {formats.includes('csv') && (
+            <Button variant="outline" onClick={() => handleExport('csv')} disabled={disabled}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />} CSV
+            </Button>
+          )}
+          {formats.includes('pdf') && (
+            <Button onClick={() => handleExport('pdf')} disabled={disabled}>
+              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />} PDF
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
