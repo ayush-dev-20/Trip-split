@@ -20,6 +20,7 @@ import aiRoutes from './routes/aiRoutes';
 import billingRoutes from './routes/billingRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import checkpointRoutes from './routes/checkpointRoutes';
+import packingItemRoutes from './routes/packingItemRoutes';
 import noteRoutes from './routes/noteRoutes';
 import groupNoteRoutes from './routes/groupNoteRoutes';
 import personalNoteRoutes from './routes/personalNoteRoutes';
@@ -104,6 +105,7 @@ app.use('/api/ai', aiRoutes);
 app.use('/api/billing', billingRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/trips', checkpointRoutes);
+app.use('/api/trips', packingItemRoutes);
 app.use('/api/trips', noteRoutes);
 app.use('/api/export', exportRoutes);
 

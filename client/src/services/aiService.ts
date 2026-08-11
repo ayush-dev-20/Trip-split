@@ -1,6 +1,6 @@
 import api from './api';
 import { getClerkToken } from '@/lib/clerkHelper';
-import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint, AIBudgetStatus, AIPredictedCost, PackingListResponse, RootCauseExplanation } from '@/types';
+import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint, AIBudgetStatus, AIPredictedCost, RootCauseExplanation } from '@/types';
 
 /**
  * Low-level SSE helper — POSTs to `url`, then async-iterates the event stream.
@@ -72,9 +72,6 @@ export const aiService = {
 
   insightsPredictedCost: (scope: 'trip' | 'personal', tripId?: string) =>
     api.post<{ success: boolean; data: AIPredictedCost }>('/ai/insights/predicted-cost', { scope, tripId }).then((r) => r.data.data),
-
-  packingList: (params: { destination: string; days: number; startDate?: string; travelers: number }) =>
-    api.post<{ success: boolean; data: PackingListResponse }>('/ai/packing-list', params).then((r) => r.data.data),
 
   insightsRootCause: (params: { period?: string; startDate?: string; endDate?: string }) =>
     api.post<{ success: boolean; data: RootCauseExplanation }>('/ai/insights/root-cause', params).then((r) => r.data.data.explanation),

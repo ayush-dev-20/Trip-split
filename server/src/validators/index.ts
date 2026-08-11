@@ -279,6 +279,22 @@ export const reorderCheckpointsSchema = z.object({
 });
 
 // ──────────────────────────────────
+// PACKING ITEM VALIDATORS
+// ──────────────────────────────────
+
+export const createPackingItemSchema = z.object({
+  name: z.string().min(1, 'Item name is required').max(200),
+  category: z.string().min(1).max(50).optional(),
+});
+
+export const updatePackingItemSchema = z.object({
+  name: z.string().min(1).max(200).optional(),
+  category: z.string().min(1).max(50).optional(),
+  isPacked: z.boolean().optional(),
+  sortOrder: z.number().int().min(0).optional(),
+});
+
+// ──────────────────────────────────
 // NOTE VALIDATORS
 // ──────────────────────────────────
 

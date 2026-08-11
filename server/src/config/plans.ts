@@ -17,6 +17,7 @@ export const PLAN_LIMITS: Record<
     aiBudgetAdvisor: boolean;
     aiSpendingInsights: boolean;
     aiTripPlanner: boolean;
+    aiPackingList: boolean;
     aiNoteGeneration: boolean;
     aiChatbot: boolean;
     aiNaturalLanguage: boolean;
@@ -46,6 +47,7 @@ export const PLAN_LIMITS: Record<
     aiBudgetAdvisor: true,
     aiSpendingInsights: true,
     aiTripPlanner: true,
+    aiPackingList: true,
     aiNoteGeneration: true,
     aiChatbot: true,
     aiNaturalLanguage: true,
@@ -74,6 +76,7 @@ export const PLAN_LIMITS: Record<
     aiBudgetAdvisor: false,
     aiSpendingInsights: false,
     aiTripPlanner: false,
+    aiPackingList: false,
     aiNoteGeneration: false,
     aiChatbot: false,
     aiNaturalLanguage: true,
@@ -102,6 +105,7 @@ export const PLAN_LIMITS: Record<
     aiBudgetAdvisor: true,
     aiSpendingInsights: true,
     aiTripPlanner: true,
+    aiPackingList: true,
     aiNoteGeneration: true,
     aiChatbot: true,
     aiNaturalLanguage: true,

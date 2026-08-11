@@ -701,26 +701,6 @@ export const parseNaturalLanguage = asyncHandler(async (req: Request, res: Respo
 });
 
 /**
- * POST /api/ai/packing-list
- */
-export const packingList = asyncHandler(async (req: Request, res: Response) => {
-  const { destination, days, startDate, travelers } = req.body;
-
-  if (!destination || !days || !travelers) {
-    throw AppError.badRequest('destination, days, and travelers are required');
-  }
-
-  const result = await aiService.generatePackingList({
-    destination,
-    days: Number(days),
-    startDate: startDate ? String(startDate) : undefined,
-    travelers: Number(travelers),
-  });
-
-  res.json({ success: true, data: result });
-});
-
-/**
  * POST /api/ai/chat
  */
 export const chatbot = asyncHandler(async (req: Request, res: Response) => {

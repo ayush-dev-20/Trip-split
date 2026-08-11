@@ -520,13 +520,15 @@ export interface AIPredictedCost {
   reasoning: string;
 }
 
-export interface PackingListCategory {
+export interface PackingItem {
+  id: string;
+  tripId: string;
   name: string;
-  items: string[];
-}
-
-export interface PackingListResponse {
-  categories: PackingListCategory[];
+  category: string;
+  isPacked: boolean;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RootCauseExplanation {

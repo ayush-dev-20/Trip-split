@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router';
 import { aiService } from '@/services/aiService';
 import { useCreateTrip } from '@/hooks/useTrips';
 import { checkpointService } from '@/services/checkpointService';
-import { cn } from '@/lib/utils';
 import ReactMarkdown from 'react-markdown';
 import {
-  Sparkles, MapPinned, Luggage,
+  Sparkles, MapPinned,
   Loader2, FileText, Printer, CheckCircle2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -19,53 +18,10 @@ import {
 } from '@/components/ui/select';
 
 export default function AIAssistantPage() {
-  // Shared trip inputs (Trip Planner + Packing List both read from this)
   const [plannerForm, setPlannerForm] = useState({
     destination: '', days: '7', budget: '1000', currency: 'USD', travelers: '2',
     startDate: new Date().toISOString().split('T')[0],
   });
-  const [hubTab, setHubTab] = useState<'planner' | 'packing'>('planner');
-
-  // Packing List
-  const [packingCategories, setPackingCategories] = useState<{ name: string; items: string[] }[]>([]);
-  const [packingLoading, setPackingLoading] = useState(false);
-  const [checkedItems, setCheckedItems] = useState<Record<string, boolean>>({});
-
-  const packingListKey = useCallback(() => {
-    const raw = `${plannerForm.destination}|${plannerForm.days}|${plannerForm.startDate}|${plannerForm.travelers}`;
-    let hash = 0;
-    for (let i = 0; i < raw.length; i++) {
-      hash = (hash * 31 + raw.charCodeAt(i)) | 0;
-    }
-    return `packing-list-${hash}`;
-  }, [plannerForm.destination, plannerForm.days, plannerForm.startDate, plannerForm.travelers]);
-
-  const handleGeneratePackingList = async () => {
-    if (!plannerForm.destination) return;
-    setPackingLoading(true);
-    try {
-      const result = await aiService.packingList({
-        destination: plannerForm.destination,
-        days: Number(plannerForm.days),
-        startDate: plannerForm.startDate || undefined,
-        travelers: Number(plannerForm.travelers),
-      });
-      setPackingCategories(result.categories);
-      const key = packingListKey();
-      const stored = localStorage.getItem(key);
-      setCheckedItems(stored ? JSON.parse(stored) : {});
-    } finally {
-      setPackingLoading(false);
-    }
-  };
-
-  const toggleItem = (item: string) => {
-    setCheckedItems((prev) => {
-      const next = { ...prev, [item]: !prev[item] };
-      localStorage.setItem(packingListKey(), JSON.stringify(next));
-      return next;
-    });
-  };
 
   // Trip Planner
   const [plannerStreaming, setPlannerStreaming] = useState(false);
@@ -218,16 +174,16 @@ ${content}
           <MapPinned className="h-5 w-5" />
         </div>
         <div>
-          <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">AI Assistant</h1>
+          <h1 className="text-2xl sm:text-[1.75rem] font-bold tracking-tight">Trip Planner</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Plan itineraries and pack smart, powered by AI
+            Get a detailed day-by-day itinerary powered by AI
           </p>
         </div>
       </div>
 
       <Card>
         <CardContent className="p-6 space-y-5">
-          {/* Shared trip inputs */}
+          {/* Trip inputs */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <Label>Destination *</Label>
@@ -274,34 +230,7 @@ ${content}
             </div>
           </div>
 
-          {/* Pill tab bar */}
-          <div className="overflow-x-auto -mx-2 px-2">
-            <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
-              {(
-                [
-                  { id: 'planner' as const, label: 'Trip Planner', icon: MapPinned },
-                  { id: 'packing' as const, label: 'Packing List', icon: Luggage },
-                ]
-              ).map((tab) => (
-                <button
-                  key={tab.id}
-                  onClick={() => setHubTab(tab.id)}
-                  className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                    hubTab === tab.id
-                      ? 'bg-background shadow-sm text-foreground'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-background/60'
-                  )}
-                >
-                  <tab.icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {hubTab === 'planner' && (
-            <div className="space-y-5">
+          <div className="space-y-5">
               <Button
                 onClick={handleGeneratePlan}
                 disabled={plannerStreaming || !plannerForm.destination}
@@ -432,50 +361,7 @@ ${content}
                   )}
                 </div>
               )}
-            </div>
-          )}
-
-          {hubTab === 'packing' && (
-            <div className="space-y-4">
-              <Button
-                onClick={handleGeneratePackingList}
-                disabled={packingLoading || !plannerForm.destination}
-                className="w-full"
-              >
-                {packingLoading
-                  ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating Packing List…</>
-                  : <><Luggage className="h-4 w-4" /> Generate Packing List</>
-                }
-              </Button>
-
-              {packingCategories.length > 0 && (
-                <div className="grid sm:grid-cols-2 gap-4">
-                  {packingCategories.map((cat) => (
-                    <Card key={cat.name}>
-                      <CardContent className="p-4">
-                        <p className="text-sm font-semibold mb-2">{cat.name}</p>
-                        <ul className="space-y-1.5">
-                          {cat.items.map((item) => (
-                            <li key={item} className="flex items-center gap-2 text-sm">
-                              <input
-                                type="checkbox"
-                                checked={!!checkedItems[item]}
-                                onChange={() => toggleItem(item)}
-                                className="h-4 w-4 rounded border-border accent-primary"
-                              />
-                              <span className={cn(checkedItems[item] && 'line-through text-muted-foreground')}>
-                                {item}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </CardContent>
-                    </Card>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
+          </div>
         </CardContent>
       </Card>
 
