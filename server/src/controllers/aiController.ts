@@ -351,8 +351,8 @@ export const rootCauseSpending = asyncHandler(async (req: Request, res: Response
   }
 
   const [currentExpenses, previousExpenses, user] = await Promise.all([
-    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: start, lte: end } } }),
-    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
+    prisma.expense.findMany({ where: { tripId: null, groupId: null, paidById: userId, date: { gte: start, lte: end } } }),
+    prisma.expense.findMany({ where: { tripId: null, groupId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { preferredCurrency: true } }),
   ]);
 

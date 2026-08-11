@@ -1001,11 +1001,10 @@ function buildTimeSeries(period: Period, start: Date, end: Date, expenses: { dat
 }
 
 /**
- * GET /api/analytics/personal?period=week|month|quarter|year&referenceDate=ISO
- * GET /api/analytics/personal?startDate=ISO&endDate=ISO   (custom range — takes priority over period)
+ * Resolves the reporting window from query params, shared by the JSON and PDF
+ * personal-analytics endpoints so both interpret ?period / ?startDate identically.
  */
-export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Response) => {
-  const userId = req.user!.id as string;
+function resolvePersonalWindow(req: Request) {
   const startDateParam = req.query.startDate as string | undefined;
   const endDateParam   = req.query.endDate   as string | undefined;
   const useCustomRange = !!(startDateParam && endDateParam);
@@ -1039,9 +1038,24 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
     prevEnd   = new Date(start.getTime() - 1);
   }
 
+  return { period, start, end, prevStart, prevEnd };
+}
+
+/**
+ * Computes the personal analytics payload. Single source of truth for both
+ * GET /analytics/personal (JSON) and GET /analytics/personal/export/pdf.
+ */
+async function computePersonalAnalytics(
+  userId: string,
+  window: { period: Period; start: Date; end: Date; prevStart: Date; prevEnd: Date },
+) {
+  const { period, start, end, prevStart, prevEnd } = window;
+
   const [currentExpenses, previousExpenses, user] = await Promise.all([
-    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: start, lte: end } } }),
-    prisma.expense.findMany({ where: { tripId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
+    // groupId: null matters as much as tripId: null — a group expense you paid
+    // for is money you're owed back, not personal spending.
+    prisma.expense.findMany({ where: { tripId: null, groupId: null, paidById: userId, date: { gte: start, lte: end } } }),
+    prisma.expense.findMany({ where: { tripId: null, groupId: null, paidById: userId, date: { gte: prevStart, lte: prevEnd } } }),
     prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { preferredCurrency: true } }),
   ]);
 
@@ -1049,46 +1063,179 @@ export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Respo
   const previousTotal = previousExpenses.reduce((s, e) => s + e.baseAmount, 0);
   const daysDiff = Math.max(1, Math.round((end.getTime() - start.getTime()) / 86_400_000));
 
-  // Category breakdown
+  // Category breakdown — current period
   const catMap: Record<string, { total: number; count: number }> = {};
   for (const e of currentExpenses) {
     if (!catMap[e.category]) catMap[e.category] = { total: 0, count: 0 };
     catMap[e.category].total += e.baseAmount;
     catMap[e.category].count += 1;
   }
+
+  // Same breakdown for the previous window, so each category can be compared
+  // against itself rather than only against the overall period total.
+  const prevCatMap: Record<string, number> = {};
+  for (const e of previousExpenses) {
+    prevCatMap[e.category] = (prevCatMap[e.category] || 0) + e.baseAmount;
+  }
+
   const categoryBreakdown = Object.entries(catMap)
-    .map(([category, { total, count }]) => ({
-      category,
-      total: Math.round(total * 100) / 100,
-      count,
-      percentage: totalSpent > 0 ? Math.round((total / totalSpent) * 1000) / 10 : 0,
-    }))
+    .map(([category, { total, count }]) => {
+      const prevTotal = prevCatMap[category] || 0;
+      return {
+        category,
+        total: Math.round(total * 100) / 100,
+        count,
+        avgPerTransaction: count > 0 ? Math.round((total / count) * 100) / 100 : 0,
+        percentage: totalSpent > 0 ? Math.round((total / totalSpent) * 1000) / 10 : 0,
+        previousTotal: Math.round(prevTotal * 100) / 100,
+        // No spend last period → percentage change is undefined rather than
+        // "infinity"; the client renders this as "new" instead of a number.
+        changePercent: prevTotal > 0
+          ? Math.round(((total - prevTotal) / prevTotal) * 1000) / 10
+          : null,
+        direction: (total > prevTotal ? 'up' : total < prevTotal ? 'down' : 'same') as 'up' | 'down' | 'same',
+      };
+    })
     .sort((a, b) => b.total - a.total);
+
+  // Largest individual transactions — usually the most direct answer to
+  // "where did my money actually go".
+  const topExpenses = [...currentExpenses]
+    .sort((a, b) => b.baseAmount - a.baseAmount)
+    .slice(0, 5)
+    .map((e) => ({
+      id: e.id,
+      title: e.title,
+      amount: Math.round(e.baseAmount * 100) / 100,
+      category: e.category,
+      date: e.date.toISOString(),
+    }));
 
   const topCategory = categoryBreakdown[0]?.category || 'MISCELLANEOUS';
   const changePercent = previousTotal > 0
     ? Math.round(((totalSpent - previousTotal) / previousTotal) * 1000) / 10
     : 0;
 
-  res.json({
-    success: true,
-    data: {
-      period,
-      dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
-      totalSpent: Math.round(totalSpent * 100) / 100,
-      currency: user.preferredCurrency || 'USD',
-      transactionCount: currentExpenses.length,
-      avgPerDay: Math.round((totalSpent / daysDiff) * 100) / 100,
-      topCategory,
-      categoryBreakdown,
-      timeSeriesData: buildTimeSeries(period, start, end, currentExpenses),
-      comparisonToPrev: {
-        previousTotal: Math.round(previousTotal * 100) / 100,
-        changePercent,
-        direction: totalSpent > previousTotal ? 'up' : totalSpent < previousTotal ? 'down' : 'same',
-      },
+  return {
+    period,
+    dateRange: { startDate: start.toISOString(), endDate: end.toISOString() },
+    totalSpent: Math.round(totalSpent * 100) / 100,
+    currency: user.preferredCurrency || 'USD',
+    transactionCount: currentExpenses.length,
+    avgPerDay: Math.round((totalSpent / daysDiff) * 100) / 100,
+    topCategory,
+    categoryBreakdown,
+    topExpenses,
+    timeSeriesData: buildTimeSeries(period, start, end, currentExpenses),
+    comparisonToPrev: {
+      previousTotal: Math.round(previousTotal * 100) / 100,
+      changePercent,
+      direction: (totalSpent > previousTotal ? 'up' : totalSpent < previousTotal ? 'down' : 'same') as 'up' | 'down' | 'same',
     },
-  });
+  };
+}
+
+/**
+ * GET /api/analytics/personal?period=week|month|quarter|year&referenceDate=ISO
+ * GET /api/analytics/personal?startDate=ISO&endDate=ISO   (custom range — takes priority over period)
+ */
+export const getPersonalAnalytics = asyncHandler(async (req: Request, res: Response) => {
+  const data = await computePersonalAnalytics(req.user!.id as string, resolvePersonalWindow(req));
+  res.json({ success: true, data });
+});
+
+/**
+ * GET /api/analytics/personal/export/pdf — same params as the JSON endpoint.
+ * Renders the analytics for that window as a printable report.
+ */
+export const exportPersonalAnalyticsPDF = asyncHandler(async (req: Request, res: Response) => {
+  const userId = req.user!.id as string;
+  const data = await computePersonalAnalytics(userId, resolvePersonalWindow(req));
+
+  const fmtDate = (d: Date | string) =>
+    new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  const money = (n: number) => `${data.currency} ${n.toFixed(2)}`;
+
+  const PDFDocument = (await import('pdfkit')).default;
+  const doc = new PDFDocument({ margin: 50, size: 'A4' });
+
+  const rangeLabel = `${fmtDate(data.dateRange.startDate)} - ${fmtDate(data.dateRange.endDate)}`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="personal_analytics_${data.dateRange.startDate.split('T')[0]}_to_${data.dateRange.endDate.split('T')[0]}.pdf"`);
+  doc.pipe(res);
+
+  // ── Header ───────────────────────────────────────────────────────────────
+  doc.fontSize(26).font('Helvetica-Bold').text('TripSplit', { align: 'center' });
+  doc.fontSize(18).font('Helvetica').text('Personal Spending Analytics', { align: 'center' });
+  doc.fontSize(11).fillColor('#666').text(rangeLabel, { align: 'center' });
+  doc.fillColor('#000').moveDown(1.5);
+
+  // ── Summary ──────────────────────────────────────────────────────────────
+  doc.fontSize(14).font('Helvetica-Bold').text('Summary');
+  doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#ddd');
+  doc.moveDown(0.5);
+
+  const changeLabel = data.comparisonToPrev.direction === 'same'
+    ? 'no change vs previous period'
+    : `${data.comparisonToPrev.direction === 'up' ? 'up' : 'down'} ${Math.abs(data.comparisonToPrev.changePercent)}% vs previous period (${money(data.comparisonToPrev.previousTotal)})`;
+
+  doc.fontSize(11).font('Helvetica');
+  doc.text(`Total spent:        ${money(data.totalSpent)}`);
+  doc.text(`Transactions:       ${data.transactionCount}`);
+  doc.text(`Daily average:      ${money(data.avgPerDay)}`);
+  doc.text(`Top category:       ${data.topCategory}`);
+  doc.text(`Trend:              ${changeLabel}`);
+  doc.moveDown(1.5);
+
+  // ── Category breakdown ───────────────────────────────────────────────────
+  if (data.categoryBreakdown.length > 0) {
+    doc.fontSize(14).font('Helvetica-Bold').text('By Category');
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#ddd');
+    doc.moveDown(0.5);
+
+    // Column header
+    doc.fontSize(9).font('Helvetica-Bold').fillColor('#555');
+    doc.text('Category', 50, doc.y, { width: 150, continued: true });
+    doc.text('Count', { width: 60, align: 'right', continued: true });
+    doc.text('Average', { width: 100, align: 'right', continued: true });
+    doc.text('Total', { width: 110, align: 'right', continued: true });
+    doc.text('Share', { width: 75, align: 'right' });
+    doc.fillColor('#000').moveDown(0.4);
+
+    doc.font('Helvetica').fontSize(10);
+    for (const c of data.categoryBreakdown) {
+      const trend = c.changePercent === null
+        ? 'new'
+        : `${c.direction === 'up' ? '+' : c.direction === 'down' ? '-' : ''}${Math.abs(c.changePercent)}%`;
+      doc.text(c.category, 50, doc.y, { width: 150, continued: true });
+      doc.text(String(c.count), { width: 60, align: 'right', continued: true });
+      doc.text(c.avgPerTransaction.toFixed(2), { width: 100, align: 'right', continued: true });
+      doc.text(c.total.toFixed(2), { width: 110, align: 'right', continued: true });
+      doc.text(`${c.percentage}% (${trend})`, { width: 75, align: 'right' });
+    }
+    doc.moveDown(1.5);
+  }
+
+  // ── Biggest expenses ─────────────────────────────────────────────────────
+  if (data.topExpenses.length > 0) {
+    doc.fontSize(14).font('Helvetica-Bold').fillColor('#000').text('Biggest Expenses');
+    doc.moveTo(50, doc.y).lineTo(545, doc.y).stroke('#ddd');
+    doc.moveDown(0.5);
+
+    doc.fontSize(10).font('Helvetica');
+    for (const e of data.topExpenses) {
+      doc.font('Helvetica-Bold').text(`${fmtDate(e.date)}  ${e.title}`, { continued: true });
+      doc.font('Helvetica').text(`  ${e.amount.toFixed(2)} ${data.currency}`, { align: 'right' });
+      doc.fontSize(9).fillColor('#555').text(e.category);
+      doc.fontSize(10).fillColor('#000').moveDown(0.3);
+    }
+  }
+
+  if (data.transactionCount === 0) {
+    doc.fontSize(11).fillColor('#666').text('No personal expenses were recorded in this period.');
+  }
+
+  doc.end();
 });
 
 /**

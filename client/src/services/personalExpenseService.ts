@@ -8,6 +8,20 @@ import type {
   CreatePersonalExpensePayload,
 } from '@/types';
 
+export interface ExportParams {
+  category?: string;
+  startDate?: string;
+  endDate?: string;
+}
+
+/** Drops undefined values and returns a leading-"?" query string (or ''). */
+function buildQuery(params?: object) {
+  const qs = new URLSearchParams(
+    Object.entries(params ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined)
+  ).toString();
+  return qs ? `?${qs}` : '';
+}
+
 export const personalExpenseService = {
   getAll: (params?: {
     startDate?: string;
@@ -58,18 +72,24 @@ export const personalExpenseService = {
       .get<{ success: boolean; data: PersonalBudgetStatus }>('/personal-expenses/budget-status')
       .then((r) => r.data.data),
 
-  exportCSV: (params?: { category?: string }) => {
-    const qs = new URLSearchParams(
-      Object.entries(params ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined)
-    ).toString();
-    window.open(`/api/personal-expenses/export/csv${qs ? `?${qs}` : ''}`, '_blank');
+  exportCSV: (params?: ExportParams) => {
+    window.open(`/api/personal-expenses/export/csv${buildQuery(params)}`, '_blank');
   },
 
-  exportPDF: (params?: { category?: string }) => {
-    const qs = new URLSearchParams(
-      Object.entries(params ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined)
-    ).toString();
-    window.open(`/api/personal-expenses/export/pdf${qs ? `?${qs}` : ''}`, '_blank');
+  exportPDF: (params?: ExportParams) => {
+    window.open(`/api/personal-expenses/export/pdf${buildQuery(params)}`, '_blank');
+  },
+
+  /**
+   * Analytics report (summary, category breakdown, biggest expenses) as a PDF.
+   * Accepts the same window params as getAnalytics.
+   */
+  exportAnalyticsPDF: (params?: {
+    period?: PersonalAnalyticsPeriod;
+    startDate?: string;
+    endDate?: string;
+  }) => {
+    window.open(`/api/analytics/personal/export/pdf${buildQuery(params)}`, '_blank');
   },
 
   // Pass either { period, referenceDate? } or { startDate, endDate } (custom

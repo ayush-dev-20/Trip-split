@@ -6,18 +6,22 @@ import type { RecurringFrequency } from '@/types';
 import { aiService } from '@/services/aiService';
 import { useAnomalyStore } from '@/stores/anomalyStore';
 
-export function usePersonalExpenses(params?: {
-  startDate?: string;
-  endDate?: string;
-  category?: string;
-  search?: string;
-  page?: number;
-  limit?: number;
-}) {
+export function usePersonalExpenses(
+  params?: {
+    startDate?: string;
+    endDate?: string;
+    category?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  },
+  enabled: boolean = true,
+) {
   return useQuery({
     queryKey: ['personal-expenses', params],
     queryFn: () => personalExpenseService.getAll(params),
     staleTime: 60_000,
+    enabled,
   });
 }
 

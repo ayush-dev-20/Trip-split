@@ -613,7 +613,24 @@ export interface PersonalAnalytics {
   transactionCount: number;
   avgPerDay: number;
   topCategory: string;
-  categoryBreakdown: { category: string; total: number; count: number; percentage: number }[];
+  categoryBreakdown: {
+    category: string;
+    total: number;
+    count: number;
+    avgPerTransaction: number;
+    percentage: number;
+    previousTotal: number;
+    /** null when the category had no spend in the previous period (i.e. it's new). */
+    changePercent: number | null;
+    direction: 'up' | 'down' | 'same';
+  }[];
+  topExpenses: {
+    id: string;
+    title: string;
+    amount: number;
+    category: string;
+    date: string;
+  }[];
   timeSeriesData: { label: string; amount: number }[];
   comparisonToPrev: {
     previousTotal: number;

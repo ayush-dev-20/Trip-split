@@ -11,7 +11,7 @@ function buildPersonalExportWhere(userId: string, req: Request) {
   const endDate   = req.query.endDate   as string | undefined;
   const category  = req.query.category  as string | undefined;
 
-  const where: Record<string, unknown> = { paidById: userId, tripId: null };
+  const where: Record<string, unknown> = { paidById: userId, tripId: null, groupId: null };
   if (startDate || endDate) {
     where.date = {
       ...(startDate ? { gte: new Date(startDate) } : {}),

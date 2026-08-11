@@ -22,11 +22,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { Skeleton } from '@/components/ui/skeleton';
 import EmptyState from '@/components/ui/EmptyState';
+import ExportDialog from '@/components/expenses/ExportDialog';
 import AIChatPanel from '@/components/ui/AIChatPanel';
 import { aiService } from '@/services/aiService';
 import { personalExpenseService } from '@/services/personalExpenseService';
@@ -55,6 +53,11 @@ import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay, Recu
 
 const DAYS_OF_WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const ALL_CATEGORIES = Object.keys(CATEGORY_STYLES) as ExpenseCategory[];
+
+/** Category display name — always the app-wide label (e.g. MISCELLANEOUS → "Other"). */
+function categoryLabel(category: string) {
+  return CATEGORY_STYLES[category as ExpenseCategory]?.label ?? category;
+}
 
 function formatDayLabel(dateStr: string) {
   const d = parseISO(dateStr);
@@ -988,8 +991,9 @@ function RecurringTab({
 // same behavior, same UI. Manages its own period/custom-range state, separate
 // from the rest of the page's `category` filter.
 
-function PersonalAnalyticsTab() {
+function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string) => void }) {
   const [personalPeriod, setPersonalPeriod] = useState<PersonalAnalyticsPeriod>('month');
+  const [drilldownCategory, setDrilldownCategory] = useState<string | null>(null);
 
   // Custom date range. Both fields must be filled for it to take priority
   // over the week/month/quarter/year pills (server does the same "both required" check).
@@ -1002,6 +1006,11 @@ function PersonalAnalyticsTab() {
       ? { startDate: personalStartDate, endDate: personalEndDate }
       : { period: personalPeriod }
   );
+
+  // The monthly budget describes the current calendar month only, so it's just
+  // noise on week/quarter/year or a custom range.
+  const showBudget = !personalCustomActive && personalPeriod === 'month';
+  const { data: budgetStatus } = usePersonalBudgetStatus();
 
   const [rootCause, setRootCause] = useState<string | null>(null);
   const [rootCauseLoading, setRootCauseLoading] = useState(false);
@@ -1073,6 +1082,23 @@ function PersonalAnalyticsTab() {
             </Button>
           )}
         </div>
+
+        {/* Exports exactly the window selected above, so there's no second
+            date picker to keep in sync. */}
+        <Button
+          variant="outline"
+          size="sm"
+          className="sm:ml-auto shrink-0"
+          onClick={() =>
+            personalExpenseService.exportAnalyticsPDF(
+              personalCustomActive
+                ? { startDate: personalStartDate, endDate: personalEndDate }
+                : { period: personalPeriod }
+            )
+          }
+        >
+          <Download className="h-3.5 w-3.5 mr-1.5" /> Export PDF
+        </Button>
       </div>
 
       {personalLoading ? (
@@ -1081,7 +1107,7 @@ function PersonalAnalyticsTab() {
             <Card key={i} className="animate-pulse h-24" />
           ))}
         </div>
-      ) : personalData ? (
+      ) : personalData && personalData.transactionCount > 0 ? (
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
 
           {/* Summary stat cards */}
@@ -1100,7 +1126,7 @@ function PersonalAnalyticsTab() {
             <StatCard
               icon={PieChartIcon}
               label="Top Category"
-              value={personalData.topCategory.charAt(0) + personalData.topCategory.slice(1).toLowerCase()}
+              value={categoryLabel(personalData.topCategory)}
             />
             <Card className="p-4">
               <p className="text-xs text-muted-foreground mb-1">vs Previous Period</p>
@@ -1118,6 +1144,11 @@ function PersonalAnalyticsTab() {
               </p>
             </Card>
           </div>
+
+          {/* Budget context — the monthly budget only describes the current calendar
+              month, so it's only meaningful on the month preset (not week/quarter/year
+              or a custom range, where it would be comparing against the wrong window). */}
+          {showBudget && budgetStatus && <PersonalBudgetCard status={budgetStatus} />}
 
           {/* Root-cause explanation — on-demand, mirrors AIInsightsPanel's "Generate Insights" convention */}
           <Card className="p-4">
@@ -1158,48 +1189,158 @@ function PersonalAnalyticsTab() {
 
           {/* Category breakdown */}
           {personalData.categoryBreakdown.length > 0 && (
-            <div className="grid sm:grid-cols-2 gap-4">
-              <ChartCard title="By Category">
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={personalData.categoryBreakdown} layout="vertical" barSize={14}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, personalData.currency)} />
-                    <YAxis type="category" dataKey="category" tick={{ fontSize: 10 }} width={90}
-                      tickFormatter={(v) => v.charAt(0) + v.slice(1).toLowerCase()} />
-                    <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
-                    <Bar dataKey="total" name="Amount" radius={[0, 4, 4, 0]}>
-                      {personalData.categoryBreakdown.map((entry, idx) => (
-                        <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </ChartCard>
+            <>
+              <div className="grid sm:grid-cols-2 gap-4">
+                <ChartCard title="By Category">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={personalData.categoryBreakdown} layout="vertical" barSize={14}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis type="number" tick={{ fontSize: 11 }} tickFormatter={(v) => fmtTick(v, personalData.currency)} />
+                      <YAxis type="category" dataKey="category" tick={{ fontSize: 10 }} width={90}
+                        tickFormatter={categoryLabel} />
+                      <Tooltip content={<CustomTooltip currency={personalData.currency} />} />
+                      <Bar
+                        dataKey="total"
+                        name="Amount"
+                        radius={[0, 4, 4, 0]}
+                        className="cursor-pointer"
+                        onClick={(data: { category?: string }) => data?.category && setDrilldownCategory(data.category)}
+                      >
+                        {personalData.categoryBreakdown.map((entry, idx) => (
+                          <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </ChartCard>
 
-              <ChartCard title="Category Split">
-                <ResponsiveContainer width="100%" height={220}>
-                  <RechartsPie>
-                    <Pie
-                      data={personalData.categoryBreakdown}
-                      dataKey="total"
-                      nameKey="category"
-                      cx="50%"
-                      cy="50%"
-                      outerRadius={80}
-                      label={({ category, percentage }) =>
-                        `${category.charAt(0) + category.slice(1).toLowerCase()} ${percentage}%`
-                      }
-                      labelLine={false}
-                    >
-                      {personalData.categoryBreakdown.map((entry, idx) => (
-                        <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(v: number) => fmt(v, personalData.currency)} />
-                  </RechartsPie>
-                </ResponsiveContainer>
-              </ChartCard>
-            </div>
+                <ChartCard title="Category Split">
+                  <ResponsiveContainer width="100%" height={220}>
+                    <RechartsPie>
+                      <Pie
+                        data={personalData.categoryBreakdown}
+                        dataKey="total"
+                        nameKey="category"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={80}
+                        label={({ category, percentage }) => `${categoryLabel(category)} ${percentage}%`}
+                        labelLine={false}
+                        className="cursor-pointer"
+                        onClick={(data: { category?: string }) => data?.category && setDrilldownCategory(data.category)}
+                      >
+                        {personalData.categoryBreakdown.map((entry, idx) => (
+                          <Cell key={idx} fill={getCategoryColor(entry.category, idx)} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v: number) => fmt(v, personalData.currency)} />
+                    </RechartsPie>
+                  </ResponsiveContainer>
+                </ChartCard>
+              </div>
+
+              {/* Category detail rows — the reliable tap target for drilling in
+                  (chart slices are fiddly on mobile), and where count/average/
+                  trend actually get shown. */}
+              <Card>
+                <CardContent className="p-0">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-4 pt-4 pb-2">
+                    Where it went — tap a category
+                  </p>
+                  <ul className="divide-y">
+                    {personalData.categoryBreakdown.map((c, idx) => {
+                      const style = getCategoryStyle(c.category);
+                      const Icon = style.icon;
+                      return (
+                        <li key={c.category}>
+                          <button
+                            type="button"
+                            onClick={() => setDrilldownCategory(c.category)}
+                            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 active:bg-accent/70 transition-colors"
+                          >
+                            <div className={cn('flex items-center justify-center h-9 w-9 rounded-xl shrink-0', style.bg)}>
+                              <Icon className={cn('h-4 w-4', style.fg)} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: getCategoryColor(c.category, idx) }} />
+                                <p className="text-sm font-medium truncate">{categoryLabel(c.category)}</p>
+                              </div>
+                              <p className="text-xs text-muted-foreground mt-0.5">
+                                {c.count} expense{c.count !== 1 ? 's' : ''} · avg {fmt(c.avgPerTransaction, personalData.currency)} · {c.percentage}%
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="text-sm font-semibold tabular-nums">{fmt(c.total, personalData.currency)}</p>
+                              <p className={cn(
+                                'text-[11px] tabular-nums flex items-center justify-end gap-0.5 mt-0.5',
+                                c.changePercent === null ? 'text-muted-foreground'
+                                  : c.direction === 'up' ? 'text-red-500'
+                                  : c.direction === 'down' ? 'text-green-500'
+                                  : 'text-muted-foreground',
+                              )}>
+                                {c.changePercent === null ? (
+                                  'new'
+                                ) : (
+                                  <>
+                                    {c.direction === 'up' && <ArrowUpRight className="h-3 w-3" />}
+                                    {c.direction === 'down' && <ArrowDownRight className="h-3 w-3" />}
+                                    {Math.abs(c.changePercent)}%
+                                  </>
+                                )}
+                              </p>
+                            </div>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="text-[11px] text-muted-foreground px-4 py-2.5 border-t">
+                    Trend compares each category with the previous period
+                    {' '}({fmt(personalData.comparisonToPrev.previousTotal, personalData.currency)} total).
+                  </p>
+                </CardContent>
+              </Card>
+            </>
+          )}
+
+          {/* Biggest individual expenses */}
+          {personalData.topExpenses.length > 0 && (
+            <Card>
+              <CardContent className="p-0">
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground px-4 pt-4 pb-2">
+                  Biggest expenses
+                </p>
+                <ul className="divide-y">
+                  {personalData.topExpenses.map((e) => {
+                    const style = getCategoryStyle(e.category as ExpenseCategory);
+                    const Icon = style.icon;
+                    return (
+                      <li key={e.id}>
+                        <button
+                          type="button"
+                          onClick={() => onExpenseClick(e.id)}
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-accent/50 active:bg-accent/70 transition-colors"
+                        >
+                          <div className={cn('flex items-center justify-center h-9 w-9 rounded-xl shrink-0', style.bg)}>
+                            <Icon className={cn('h-4 w-4', style.fg)} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{e.title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {categoryLabel(e.category)} · {format(parseISO(e.date), 'MMM d, yyyy')}
+                            </p>
+                          </div>
+                          <p className="text-sm font-semibold tabular-nums shrink-0">
+                            {fmt(e.amount, personalData.currency)}
+                          </p>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </CardContent>
+            </Card>
           )}
         </motion.div>
       ) : (
@@ -1208,7 +1349,118 @@ function PersonalAnalyticsTab() {
           <p>No personal expenses found for this period.</p>
         </div>
       )}
+
+      {/* Category drill-down */}
+      <CategoryDrilldownSheet
+        category={drilldownCategory}
+        dateRange={personalData?.dateRange}
+        currency={personalData?.currency ?? 'USD'}
+        onClose={() => setDrilldownCategory(null)}
+        onExpenseClick={onExpenseClick}
+      />
     </div>
+  );
+}
+
+// ── Category drill-down sheet ────────────────────────────────────────────────
+// Answers "what did the ₹2,500 on Food actually consist of" without leaving
+// Analytics. Reuses the same date window the charts were built from, and the
+// same filters the analytics endpoint uses, so the totals reconcile exactly.
+
+function CategoryDrilldownSheet({
+  category,
+  dateRange,
+  currency,
+  onClose,
+  onExpenseClick,
+}: {
+  category: string | null;
+  dateRange?: { startDate: string; endDate: string };
+  currency: string;
+  onClose: () => void;
+  onExpenseClick: (id: string) => void;
+}) {
+  const LIMIT = 100;
+  const { data, isLoading } = usePersonalExpenses(
+    {
+      startDate: dateRange?.startDate,
+      endDate: dateRange?.endDate,
+      category: category ?? undefined,
+      limit: LIMIT,
+    },
+    // Only fetch once a category is actually selected
+    !!category && !!dateRange,
+  );
+  const deleteMutation = useDeletePersonalExpense();
+
+  const expenses = data?.expenses ?? [];
+  const total = expenses.reduce((s, e) => s + e.baseAmount, 0);
+  const totalCount = data?.pagination.total ?? expenses.length;
+  const style = category ? getCategoryStyle(category as ExpenseCategory) : null;
+
+  return (
+    <Sheet open={!!category} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
+        {category && (
+          <>
+            <SheetHeader className="px-5 pt-2 pb-4 border-b">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  {style && (
+                    <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', style.bg)}>
+                      <style.icon className={cn('h-5 w-5', style.fg)} />
+                    </div>
+                  )}
+                  <div className="min-w-0 text-left">
+                    <SheetTitle className="text-base">{categoryLabel(category)}</SheetTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      {dateRange && (
+                        <>
+                          {format(parseISO(dateRange.startDate), 'MMM d')} – {format(parseISO(dateRange.endDate), 'MMM d, yyyy')}
+                          {' · '}
+                        </>
+                      )}
+                      {totalCount} expense{totalCount !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                </div>
+                <span className="text-lg font-bold tabular-nums text-primary shrink-0">
+                  {formatMoney(total, currency)}
+                </span>
+              </div>
+            </SheetHeader>
+
+            {isLoading ? (
+              <div className="p-4 space-y-2">
+                {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-14 rounded-xl" />)}
+              </div>
+            ) : expenses.length === 0 ? (
+              <p className="px-5 py-10 text-center text-sm text-muted-foreground">
+                No expenses in this category for the selected period.
+              </p>
+            ) : (
+              <>
+                <ul className="divide-y mt-1">
+                  {expenses.map((e) => (
+                    <ExpenseCard
+                      key={e.id}
+                      expense={e}
+                      onDelete={(id) => deleteMutation.mutate(id)}
+                      onClick={() => onExpenseClick(e.id)}
+                    />
+                  ))}
+                </ul>
+                {totalCount > expenses.length && (
+                  <p className="px-5 py-3 text-xs text-muted-foreground text-center border-t">
+                    Showing the {expenses.length} most recent of {totalCount}. Use History to see the rest.
+                  </p>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </SheetContent>
+    </Sheet>
   );
 }
 
@@ -1221,6 +1473,7 @@ export default function PersonalExpensesPage() {
   const [category, setCategory]       = useState('ALL');
   const [detailId, setDetailId]       = useState<string | null>(null);
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const [exportOpen, setExportOpen]   = useState(false);
 
   // Search box updates instantly; `search` (used in queries) only updates once
   // the user pauses typing for 300ms, so we don't fire a request per keystroke.
@@ -1241,7 +1494,10 @@ export default function PersonalExpensesPage() {
   ];
 
   return (
-    <div className="max-w-2xl mx-auto px-4 py-6 space-y-5 pb-24">
+    // Below lg this keeps its own narrow column and padding (unchanged mobile layout).
+    // From lg up it drops both so it inherits AppLayout's max-w-6xl container and
+    // spacing, matching Trips/Groups instead of sitting in a narrow strip.
+    <div className="max-w-2xl mx-auto px-4 py-6 space-y-5 pb-24 lg:max-w-none lg:px-0 lg:py-0 lg:pb-0">
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
@@ -1265,7 +1521,9 @@ export default function PersonalExpensesPage() {
       </div>
 
       {/* Tab toggle */}
-      <div className="overflow-x-auto -mx-4 px-4">
+      {/* -mx-4/px-4 lets the scroller bleed to the screen edges on mobile; from lg
+          the page has no padding of its own, so the offset has to be dropped too. */}
+      <div className="overflow-x-auto -mx-4 px-4 lg:mx-0 lg:px-0">
         <div className="flex gap-1 p-1 bg-muted rounded-lg w-fit">
           {TABS.map(({ id, label, icon: Icon }) => {
             const tabClasses = cn(
@@ -1310,26 +1568,15 @@ export default function PersonalExpensesPage() {
           </div>
 
           {view === 'past' && (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="shrink-0 px-2.5 sm:px-3">
-                  <Download className="h-3.5 w-3.5 sm:mr-1.5" />
-                  <span className="hidden sm:inline">Export</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  onClick={() => personalExpenseService.exportCSV({ category: category !== 'ALL' ? category : undefined })}
-                >
-                  Export as CSV
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => personalExpenseService.exportPDF({ category: category !== 'ALL' ? category : undefined })}
-                >
-                  Export as PDF
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 px-2.5 sm:px-3"
+              onClick={() => setExportOpen(true)}
+            >
+              <Download className="h-3.5 w-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">Export</span>
+            </Button>
           )}
         </div>
       )}
@@ -1370,7 +1617,7 @@ export default function PersonalExpensesPage() {
               onExpenseClick={setDetailId}
             />
           )}
-          {view === 'analytics' && <PersonalAnalyticsTab />}
+          {view === 'analytics' && <PersonalAnalyticsTab onExpenseClick={setDetailId} />}
           {view === 'recurring' && (
             <RecurringTab
               currency={preferredCurrency}
@@ -1409,6 +1656,23 @@ export default function PersonalExpensesPage() {
         expenseId={detailId}
         onClose={() => setDetailId(null)}
         onDelete={(id) => deleteMutation.mutate(id)}
+      />
+
+      {/* Export — pick a period first, then a format. The active category filter
+          is carried through so the export matches what's on screen. */}
+      <ExportDialog
+        open={exportOpen}
+        onOpenChange={setExportOpen}
+        description={
+          category !== 'ALL'
+            ? `Choose the period you want to export. Only ${CATEGORY_STYLES[category as ExpenseCategory]?.label ?? category} expenses will be included, matching your current filter.`
+            : 'Choose the period you want to export.'
+        }
+        onExport={(format, range) => {
+          const params = { ...range, category: category !== 'ALL' ? category : undefined };
+          if (format === 'csv') personalExpenseService.exportCSV(params);
+          else personalExpenseService.exportPDF(params);
+        }}
       />
     </div>
   );

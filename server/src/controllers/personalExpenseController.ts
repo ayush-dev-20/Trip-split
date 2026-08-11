@@ -29,6 +29,7 @@ export const createPersonalExpense = asyncHandler(async (req: Request, res: Resp
       isRecurring: isRecurring ?? false,
       recurringPattern,
       tripId: null,
+      groupId: null,
       paidById: userId,
       splits: {
         create: [{ userId, amount: baseAmount }],
@@ -63,7 +64,9 @@ export const getPersonalExpenses = asyncHandler(async (req: Request, res: Respon
   const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
   const skip = (pageNum - 1) * limitNum;
 
-  const where: Record<string, unknown> = { tripId: null, paidById: userId };
+  // Personal = neither trip nor group. A group expense you paid for is money
+  // you get back, so it must not show up as personal spending.
+  const where: Record<string, unknown> = { tripId: null, groupId: null, paidById: userId };
   if (startDate || endDate) {
     where.date = {
       ...(startDate ? { gte: new Date(startDate) } : {}),
@@ -110,7 +113,7 @@ export const getPersonalExpensesByDay = asyncHandler(async (req: Request, res: R
   const endDate   = new Date(y, m, 0, 23, 59, 59, 999);
 
   const expenses = await prisma.expense.findMany({
-    where: { tripId: null, paidById: userId, date: { gte: startDate, lte: endDate } },
+    where: { tripId: null, groupId: null, paidById: userId, date: { gte: startDate, lte: endDate } },
     orderBy: { date: 'asc' },
   });
 
@@ -234,7 +237,7 @@ export const getRecurringExpenses = asyncHandler(async (req: Request, res: Respo
   const userId = req.user!.id;
 
   const expenses = await prisma.expense.findMany({
-    where: { paidById: userId, isRecurring: true, tripId: null },
+    where: { paidById: userId, isRecurring: true, tripId: null, groupId: null },
     orderBy: [{ recurringPattern: 'asc' }, { title: 'asc' }],
   });
 
@@ -259,7 +262,7 @@ export const getPersonalBudgetStatus = asyncHandler(async (req: Request, res: Re
   const endOfMonth   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
 
   const spentAgg = await prisma.expense.aggregate({
-    where: { paidById: userId, tripId: null, date: { gte: startOfMonth, lte: endOfMonth } },
+    where: { paidById: userId, tripId: null, groupId: null, date: { gte: startOfMonth, lte: endOfMonth } },
     _sum: { baseAmount: true },
   });
   const totalSpentThisMonth = spentAgg._sum.baseAmount ?? 0;
