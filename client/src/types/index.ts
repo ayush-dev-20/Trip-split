@@ -2,22 +2,32 @@
 export type Role = 'ADMIN' | 'MEMBER';
 export type TripStatus = 'UPCOMING' | 'ACTIVE' | 'COMPLETED' | 'ARCHIVED';
 export type SplitType = 'EQUAL' | 'PERCENTAGE' | 'EXACT' | 'SHARES';
-export type SubscriptionTier = 'FREE' | 'PRO' | 'TEAM';
+export type SubscriptionTier = 'FREE' | 'PRO';
 export type SubscriptionStatus = 'ACTIVE' | 'PAST_DUE' | 'CANCELED' | 'TRIALING';
 export type SettlementStatus = 'PENDING' | 'SETTLED' | 'DISPUTED';
 export type PollStatus = 'OPEN' | 'CLOSED';
 
+// Mirrors the ExpenseCategory enum in prisma/schema.prisma.
 export type ExpenseCategory =
   | 'FOOD'
+  | 'DINING'
   | 'GROCERIES'
   | 'TRANSPORT'
+  | 'FUEL'
+  | 'RENT'
+  | 'UTILITIES'
+  | 'INSURANCE'
+  | 'LOAN_REPAYMENT'
+  | 'SUBSCRIPTION'
+  | 'INVESTMENT'
+  | 'MEDICAL'
+  | 'PERSONAL_CARE'
+  | 'EDUCATION'
+  | 'SHOPPING'
+  | 'ENTERTAINMENT'
+  | 'GIFTING'
   | 'ACCOMMODATION'
   | 'ACTIVITIES'
-  | 'SHOPPING'
-  | 'HEALTH'
-  | 'COMMUNICATION'
-  | 'ENTERTAINMENT'
-  | 'FEES'
   | 'MISCELLANEOUS';
 
 export type NotificationType =

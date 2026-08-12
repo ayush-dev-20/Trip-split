@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { CATEGORY_STYLES } from '@/lib/categoryStyle';
+import { CATEGORY_STYLES, ALL_CATEGORIES } from '@/lib/categoryStyle';
 import { useCategorySuggestion } from '@/hooks/useCategorySuggestion';
 import { FREQUENCY_LABELS } from '@/lib/recurring';
 import {
@@ -25,10 +25,6 @@ import { aiService } from '@/services/aiService';
 import { cn } from '@/lib/utils';
 import type { ExpenseCategory, RecurringFrequency } from '@/types';
 
-const CATEGORIES: ExpenseCategory[] = [
-  'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
-  'HEALTH', 'COMMUNICATION', 'ENTERTAINMENT', 'FEES', 'MISCELLANEOUS',
-];
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'JPY', 'INR', 'AUD', 'CAD', 'CHF', 'SGD', 'THB'];
 
@@ -341,7 +337,7 @@ export default function CreatePersonalExpensePage() {
           <div className="space-y-2">
             <Label>Category</Label>
             <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-              {CATEGORIES.map((c) => {
+              {ALL_CATEGORIES.map((c) => {
                 const style = CATEGORY_STYLES[c];
                 const Icon  = style.icon;
                 return (

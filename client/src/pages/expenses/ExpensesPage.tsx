@@ -20,14 +20,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
+import { CATEGORY_STYLES, getCategoryStyle, ALL_CATEGORIES } from '@/lib/categoryStyle';
 import { formatMoney, formatRelativeDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
-const CATEGORIES: ExpenseCategory[] = [
-  'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
-  'HEALTH', 'COMMUNICATION', 'ENTERTAINMENT', 'FEES', 'MISCELLANEOUS',
-];
 
 export default function ExpensesPage() {
   const { tripId } = useParams<{ tripId: string }>();
@@ -126,7 +122,7 @@ export default function ExpensesPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="__all__">All Categories</SelectItem>
-            {CATEGORIES.map((c) => (
+            {ALL_CATEGORIES.map((c) => (
               <SelectItem key={c} value={c}>{CATEGORY_STYLES[c].label}</SelectItem>
             ))}
           </SelectContent>

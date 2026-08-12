@@ -23,7 +23,7 @@ import {
 } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import ItemizedSplitEditor from '@/components/expenses/ItemizedSplitEditor';
-import { CATEGORY_STYLES } from '@/lib/categoryStyle';
+import { CATEGORY_STYLES, ALL_CATEGORIES } from '@/lib/categoryStyle';
 import { useCategorySuggestion } from '@/hooks/useCategorySuggestion';
 import { cn } from '@/lib/utils';
 
@@ -34,10 +34,6 @@ const SPLIT_TYPES: { value: SplitType; label: string; hint: string }[] = [
   { value: 'SHARES',     label: 'Shares',      hint: 'Proportional' },
 ];
 
-const CATEGORIES: ExpenseCategory[] = [
-  'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES', 'SHOPPING',
-  'HEALTH', 'COMMUNICATION', 'ENTERTAINMENT', 'FEES', 'MISCELLANEOUS',
-];
 
 export default function CreateExpensePage() {
   const { tripId, id: editId } = useParams<{ tripId: string; id?: string }>();
@@ -552,7 +548,7 @@ export default function CreateExpensePage() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {CATEGORIES.map((c) => (
+                    {ALL_CATEGORIES.map((c) => (
                       <SelectItem key={c} value={c}>
                         <div className="flex items-center gap-2">
                           {(() => {

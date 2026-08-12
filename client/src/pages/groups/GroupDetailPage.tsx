@@ -32,7 +32,7 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
+import { CATEGORY_STYLES, getCategoryStyle, CATEGORY_CHART_COLORS } from '@/lib/categoryStyle';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import type { GroupExpense, GroupAnalyticsPeriod, ExpenseCategory } from '@/types';
@@ -45,12 +45,9 @@ import GroupBalancesSection from '@/components/groups/GroupBalancesSection';
 
 // ── Chart helpers ─────────────────────────────────────────────────────────────
 
-const CATEGORY_COLORS: Record<string, string> = {
-  FOOD: '#ea580c', GROCERIES: '#16a34a', TRANSPORT: '#2563eb',
-  ACCOMMODATION: '#9333ea', ACTIVITIES: '#059669', SHOPPING: '#db2777',
-  HEALTH: '#dc2626', COMMUNICATION: '#0891b2', ENTERTAINMENT: '#7c3aed',
-  FEES: '#d97706', MISCELLANEOUS: '#64748b',
-};
+// Sourced from categoryStyle.ts so new categories pick up their colour
+// automatically instead of falling through to the generic palette.
+const CATEGORY_COLORS: Record<string, string> = CATEGORY_CHART_COLORS;
 const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6'];
 function getCategoryColor(cat: string, idx: number) { return CATEGORY_COLORS[cat] || COLORS[idx % COLORS.length]; }
 function fmtTick(v: number, currency: string) {

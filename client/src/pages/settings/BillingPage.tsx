@@ -3,7 +3,7 @@ import { billingService } from '@/services/billingService';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
-import { Check, Zap, Crown, Building2, ArrowDown, Loader2, Sparkles } from 'lucide-react';
+import { Check, Zap, Crown, ArrowDown, Loader2, Sparkles } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,7 +17,7 @@ const plans = [
   {
     tier: 'FREE' as const,
     name: 'Free',
-    price: '$0',
+    price: '₹0',
     period: 'forever',
     icon: Zap,
     color: '',
@@ -32,7 +32,7 @@ const plans = [
   {
     tier: 'PRO' as const,
     name: 'Pro',
-    price: '$7.99',
+    price: '₹69',
     period: '/month',
     icon: Crown,
     color: 'border-primary ring-2 ring-primary/20',
@@ -40,30 +40,13 @@ const plans = [
     features: [
       'Unlimited trips & members',
       'All 4 split types',
-      'AI receipt scanning',
-      'AI budget advisor',
-      'Advanced analytics',
-      'Trip score & velocity',
+      'AI receipt scanning & itemisation',
+      'AI chatbot, trip planner & insights',
+      'Advanced analytics & year-in-review',
       'Multi-currency support',
-      'Receipt uploads',
-    ],
-  },
-  {
-    tier: 'TEAM' as const,
-    name: 'Team',
-    price: '$19.99',
-    period: '/month',
-    icon: Building2,
-    color: 'border-purple-500 ring-2 ring-purple-500/20',
-    features: [
-      'Everything in Pro',
-      'AI chatbot & NLP input',
-      'Trip planner & predictions',
-      'Custom reports & exports',
-      'Year-in-review',
-      'Peer benchmarking',
+      'PDF & CSV export',
+      'Custom reports',
       'Priority support',
-      'Team analytics',
     ],
   },
 ];
@@ -74,7 +57,7 @@ export default function BillingPage() {
   const currentTier = user?.tier ?? 'FREE';
   const queryClient = useQueryClient();
 
-  const [upgradingTier, setUpgradingTier] = useState<'PRO' | 'TEAM' | null>(null);
+  const [upgradingTier, setUpgradingTier] = useState<'PRO' | null>(null);
   const [showDowngrade, setShowDowngrade] = useState(false);
 
   const { data: subscription, isLoading } = useQuery({
@@ -160,7 +143,6 @@ export default function BillingPage() {
                   <div className={cn(
                     'h-11 w-11 rounded-xl flex items-center justify-center',
                     plan.tier === 'PRO' ? 'bg-primary/10 text-primary' :
-                    plan.tier === 'TEAM' ? 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400' :
                     'bg-muted text-muted-foreground'
                   )}>
                     <plan.icon className="h-5 w-5" />
@@ -197,8 +179,8 @@ export default function BillingPage() {
                   <Button
                     variant={plan.tier === 'PRO' ? 'default' : 'secondary'}
                     onClick={() => {
-                      setUpgradingTier(plan.tier as 'PRO' | 'TEAM');
-                      upgradeMutation.mutate(plan.tier as 'PRO' | 'TEAM');
+                      setUpgradingTier(plan.tier as 'PRO');
+                      upgradeMutation.mutate(plan.tier as 'PRO');
                     }}
                     disabled={upgradeMutation.isPending}
                     className="w-full"

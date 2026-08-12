@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { EXPENSE_CATEGORIES } from '../config/categories';
+
+// Derived from the Prisma enum — adding a category to schema.prisma is enough.
+const expenseCategoryEnum = z.enum(EXPENSE_CATEGORIES as [string, ...string[]]);
 
 // ──────────────────────────────────
 // AUTH VALIDATORS
@@ -119,11 +123,7 @@ export const createExpenseSchema = z.object({
   description: z.string().max(1000).optional(),
   amount: z.number().positive('Amount must be positive'),
   currency: z.string().length(3).default('USD'),
-  category: z.enum([
-    'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
-    'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION',
-    'FEES', 'MISCELLANEOUS',
-  ]).default('MISCELLANEOUS'),
+  category: expenseCategoryEnum.default('MISCELLANEOUS'),
   date: z.string().datetime(),
   splitType: z.enum(['EQUAL', 'PERCENTAGE', 'EXACT', 'SHARES']).default('EQUAL'),
   tripId: z.string().uuid(),
@@ -139,11 +139,7 @@ export const updateExpenseSchema = z.object({
   description: z.string().max(1000).optional().nullable(),
   amount: z.number().positive().optional(),
   currency: z.string().length(3).optional(),
-  category: z.enum([
-    'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
-    'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION',
-    'FEES', 'MISCELLANEOUS',
-  ]).optional(),
+  category: expenseCategoryEnum.optional(),
   date: z.string().datetime().optional(),
   splitType: z.enum(['EQUAL', 'PERCENTAGE', 'EXACT', 'SHARES']).optional(),
   splits: z.array(splitItemSchema).optional(),
@@ -312,11 +308,7 @@ export const updateNoteSchema = z.object({
 // PERSONAL EXPENSE VALIDATORS
 // ──────────────────────────────────
 
-const expenseCategoryEnum = z.enum([
-  'FOOD', 'GROCERIES', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
-  'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION',
-  'FEES', 'MISCELLANEOUS',
-]);
+
 
 export const createPersonalExpenseSchema = z.object({
   title: z.string().min(1, 'Title is required').max(200),

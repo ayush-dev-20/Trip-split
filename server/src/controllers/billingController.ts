@@ -10,8 +10,8 @@ import { logger } from '../utils/logger';
 export const upgrade = asyncHandler(async (req: Request, res: Response) => {
   const { tier } = req.body;
 
-  if (!['PRO', 'TEAM'].includes(tier)) {
-    throw AppError.badRequest('Invalid tier. Must be PRO or TEAM.');
+  if (tier !== 'PRO') {
+    throw AppError.badRequest('Invalid tier. Must be PRO.');
   }
 
   const subscription = await prisma.subscription.upsert({

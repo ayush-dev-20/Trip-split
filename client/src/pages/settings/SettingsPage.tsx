@@ -57,7 +57,6 @@ export default function SettingsPage() {
   const tierColors: Record<string, string> = {
     FREE: 'bg-muted text-muted-foreground',
     PRO: 'bg-primary/10 text-primary',
-    TEAM: 'bg-warning/10 text-warning',
   };
 
   return (

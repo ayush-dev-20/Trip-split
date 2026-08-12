@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { EXPENSE_CATEGORIES, EXPENSE_CATEGORIES_PROMPT, EXPENSE_CATEGORIES_JSON_PROMPT } from '../config/categories';
 
 /**
  * Google Gemini AI Service
@@ -116,7 +117,7 @@ export async function scanReceipt(imageBase64: string, mimeType: string): Promis
 - title: string (vendor/store name or short description)
 - amount: number (total amount)
 - currency: string (3-letter code, e.g. "INR", "USD")
-- category: one of FOOD, TRANSPORT, ACCOMMODATION, ACTIVITIES, SHOPPING, ENTERTAINMENT, HEALTH, COMMUNICATION, FEES, MISCELLANEOUS
+- category: one of ${EXPENSE_CATEGORIES_PROMPT}
 - date: string (YYYY-MM-DD) or null
 - description: string (brief description of items)
 Return ONLY valid JSON, no markdown.`,
@@ -228,7 +229,7 @@ export async function scanReceiptItemized(imageBase64: string, mimeType: string)
 - vendor: string (store/restaurant name)
 - date: string (YYYY-MM-DD) or null
 - currency: string (3-letter code, e.g. "INR", "USD")
-- category: one of FOOD, GROCERIES, TRANSPORT, ACCOMMODATION, ACTIVITIES, SHOPPING, ENTERTAINMENT, HEALTH, COMMUNICATION, FEES, MISCELLANEOUS
+- category: one of ${EXPENSE_CATEGORIES_PROMPT}
 - items: array of { name: string, quantity: number, unitPrice: number, totalPrice: number } — one entry per line item, totalPrice = quantity × unitPrice
 - subtotal: number (sum of item totals, before tax/charges)
 - tax: number (all taxes combined; 0 if none shown)
@@ -250,10 +251,7 @@ Return ONLY valid JSON, no markdown.`,
  * AI Expense Categorizer — Given an expense title, suggest a category.
  */
 export async function categorizeExpense(title: string, description?: string): Promise<string> {
-  const validCategories = [
-    'FOOD', 'TRANSPORT', 'ACCOMMODATION', 'ACTIVITIES',
-    'SHOPPING', 'ENTERTAINMENT', 'HEALTH', 'COMMUNICATION', 'FEES', 'MISCELLANEOUS',
-  ];
+  const validCategories = EXPENSE_CATEGORIES as string[];
 
   const text = await askText(
     `Given this expense: "${title}"${description ? ` — ${description}` : ''}
@@ -628,7 +626,7 @@ export async function parseNaturalLanguageExpense(text: string): Promise<{
 Today is ${new Date().toISOString().split('T')[0]}.
 
 Return JSON:
-{ "title": "short desc", "amount": number or null, "currency": "3-letter code default USD", "category": one of "FOOD","TRANSPORT","ACCOMMODATION","ACTIVITIES","SHOPPING","ENTERTAINMENT","HEALTH","COMMUNICATION","FEES","MISCELLANEOUS", "date": "YYYY-MM-DD" or null, "vendor": "string" or null }
+{ "title": "short desc", "amount": number or null, "currency": "3-letter code default USD", "category": one of ${EXPENSE_CATEGORIES_JSON_PROMPT}, "date": "YYYY-MM-DD" or null, "vendor": "string" or null }
 Return ONLY valid JSON.`,
     { title: text, amount: null, currency: 'USD', category: 'MISCELLANEOUS', date: null, vendor: null }
   );

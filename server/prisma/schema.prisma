@@ -35,23 +35,38 @@ enum SplitType {
 }
 
 enum ExpenseCategory {
+  // Everyday
   FOOD
+  DINING
   GROCERIES
+  // Getting around
   TRANSPORT
-  ACCOMMODATION
-  ACTIVITIES
+  FUEL
+  // Home & bills
+  RENT
+  UTILITIES // renamed from COMMUNICATION — now covers electricity/water/gas/internet/phone
+  // Financial commitments
+  INSURANCE
+  LOAN_REPAYMENT
+  SUBSCRIPTION // renamed from FEES
+  INVESTMENT
+  // Life
+  MEDICAL // renamed from HEALTH
+  PERSONAL_CARE
+  EDUCATION
   SHOPPING
   ENTERTAINMENT
-  HEALTH
-  COMMUNICATION
-  FEES
+  GIFTING
+  // Travel
+  ACCOMMODATION
+  ACTIVITIES
+  // Fallback
   MISCELLANEOUS
 }
 
 enum SubscriptionTier {
   FREE
   PRO
-  TEAM
 }
 
 enum SubscriptionStatus {

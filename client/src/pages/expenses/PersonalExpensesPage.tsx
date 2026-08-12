@@ -46,7 +46,7 @@ import AnomalyBanner from '@/components/ui/AnomalyBanner';
 import AIInsightsPanel from '@/components/ai/AIInsightsPanel';
 import { useAuthStore } from '@/stores/authStore';
 import { formatMoney, formatMoneyCompact, formatRelativeDay } from '@/lib/format';
-import { CATEGORY_STYLES, getCategoryStyle } from '@/lib/categoryStyle';
+import { CATEGORY_STYLES, getCategoryStyle, CATEGORY_CHART_COLORS } from '@/lib/categoryStyle';
 import { StatCard, ChartCard, CustomTooltip, fmt, fmtTick, getCategoryColor } from '@/lib/analyticsHelpers';
 import { cn } from '@/lib/utils';
 import type { ExpenseCategory, PersonalExpense, PersonalExpenseCalendarDay, RecurringFrequency, PersonalAnalyticsPeriod } from '@/types';
@@ -98,9 +98,11 @@ function ExpenseCard({ expense, onDelete, onClick }: ExpenseCardProps) {
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium truncate">{expense.title}</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {cat.label} · {format(parseISO(expense.createdAt), 'h:mm a')}
+            {/* The expense's own date, not createdAt — a time alone is useless in
+                lists that span multiple days (e.g. the category drill-down). */}
+            {cat.label} · {format(parseISO(expense.date), 'EEE, do MMM')}
             {expense.updatedAt !== expense.createdAt && (
-              <span className="italic"> · edited {format(parseISO(expense.updatedAt), 'h:mm a')}</span>
+              <span className="italic"> · edited</span>
             )}
           </p>
         </div>
@@ -203,6 +205,22 @@ function PersonalExpenseDetailDialog({
                 <span className="text-muted-foreground">Date</span>
                 <span className="font-medium">{format(parseISO(expense.date), 'EEE, MMM d yyyy')}</span>
               </div>
+              {/* `date` is the day the expense is for and is stored at midnight, so it
+                  carries no real time. The actual clock time lives on createdAt. */}
+              <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                <span className="text-muted-foreground">Added</span>
+                <span className="font-medium">
+                  {format(parseISO(expense.createdAt), "EEE, MMM d yyyy 'at' h:mm a")}
+                </span>
+              </div>
+              {expense.updatedAt !== expense.createdAt && (
+                <div className="flex items-center justify-between px-4 py-2.5 text-sm">
+                  <span className="text-muted-foreground">Edited</span>
+                  <span className="font-medium">
+                    {format(parseISO(expense.updatedAt), "EEE, MMM d yyyy 'at' h:mm a")}
+                  </span>
+                </div>
+              )}
               {expense.currency !== expense.currency /* placeholder — shows base if converted */ && (
                 <div className="flex items-center justify-between px-4 py-2.5 text-sm">
                   <span className="text-muted-foreground">Base amount</span>
@@ -573,19 +591,8 @@ function PastExpensesView({
 
 // ── Calendar View ─────────────────────────────────────────────────────────────
 
-const CATEGORY_DOT_COLOR: Record<string, string> = {
-  FOOD: '#ea580c',
-  GROCERIES: '#16a34a',
-  TRANSPORT: '#2563eb',
-  ACCOMMODATION: '#9333ea',
-  ACTIVITIES: '#059669',
-  SHOPPING: '#db2777',
-  HEALTH: '#dc2626',
-  COMMUNICATION: '#0891b2',
-  ENTERTAINMENT: '#7c3aed',
-  FEES: '#d97706',
-  MISCELLANEOUS: '#64748b',
-};
+// Sourced from categoryStyle.ts — see CATEGORY_CHART_COLORS.
+const CATEGORY_DOT_COLOR: Record<string, string> = CATEGORY_CHART_COLORS;
 
 function getCategoryDots(expenses: PersonalExpense[]) {
   const seen = new Set<string>();

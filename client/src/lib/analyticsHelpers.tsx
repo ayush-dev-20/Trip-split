@@ -1,5 +1,6 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
+import { CATEGORY_CHART_COLORS } from '@/lib/categoryStyle';
 
 // ─── Consistent colour palette ────────────────────────────
 export const COLORS = [
@@ -7,20 +8,6 @@ export const COLORS = [
   '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
   '#14b8a6', '#e11d48', '#a855f7', '#0ea5e9', '#d97706',
 ];
-
-export const CATEGORY_COLORS: Record<string, string> = {
-  FOOD: '#ef4444',
-  GROCERIES: '#16a34a',
-  TRANSPORT: '#3b82f6',
-  ACCOMMODATION: '#8b5cf6',
-  ACTIVITIES: '#f59e0b',
-  SHOPPING: '#ec4899',
-  ENTERTAINMENT: '#06b6d4',
-  HEALTH: '#10b981',
-  COMMUNICATION: '#6366f1',
-  FEES: '#f97316',
-  MISCELLANEOUS: '#64748b',
-};
 
 export const SPLIT_COLORS: Record<string, string> = {
   EQUAL: '#3b82f6',
@@ -30,7 +17,9 @@ export const SPLIT_COLORS: Record<string, string> = {
 };
 
 export function getCategoryColor(category: string, idx: number) {
-  return CATEGORY_COLORS[category] || COLORS[idx % COLORS.length];
+  // categoryStyle.ts is the single source of truth for category colours; COLORS
+  // only covers non-category series that also use this helper.
+  return CATEGORY_CHART_COLORS[category] || COLORS[idx % COLORS.length];
 }
 
 export function fmt(amount: number, currency: string) {
