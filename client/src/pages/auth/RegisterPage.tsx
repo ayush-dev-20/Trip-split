@@ -1,7 +1,5 @@
 import { SignUp } from '@clerk/clerk-react';
 import { useThemeStore } from '@/stores/themeStore';
-import logoDark from '@/assets/logo/tripsplit-dark-64.svg';
-import logoLight from '@/assets/logo/tripsplit-light-96.svg';
 
 const DARK_VARS = {
   colorBackground: 'hsl(222.2, 84%, 4.9%)',
@@ -62,16 +60,9 @@ const SHARED_ELEMENTS = {
 export default function RegisterPage() {
   const { resolvedTheme } = useThemeStore();
   const isDark = resolvedTheme() === 'dark';
-  const iconSrc = isDark ? logoDark : logoLight;
 
   return (
     <div className="space-y-8">
-      {/* Mobile logo */}
-      <div className="flex items-center gap-2.5 lg:hidden">
-        <img src={iconSrc} alt="TripSplit" className="h-9 w-9" />
-        <span className="text-xl font-bold tracking-tight">TripSplit</span>
-      </div>
-
       <div className="flex flex-col items-center gap-2">
         <h1 className="text-2xl font-bold">Create your account</h1>
         <p className="text-sm text-muted-foreground">
