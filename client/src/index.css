@@ -133,6 +133,48 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* ── Mobile / PWA safe-area utilities ───────────────────────────── */
 /* Used by BottomNav to sit above the iOS home indicator             */
 @layer utilities {
+  /* True viewport height on mobile. `100vh` is measured against the LARGEST
+     possible viewport (browser chrome hidden) on mobile Safari/Chrome, so a
+     `h-screen` shell renders taller than what's actually visible whenever the
+     address bar is showing — the document then grows to fit that overflow,
+     scrolling independently on top of any internal `overflow-y-auto`
+     container. That's the "double scrollbar" bug. `100dvh` tracks the real,
+     currently-visible viewport and resizes live as the chrome shows/hides.
+     The `vh` line is a fallback for browsers without `dvh` support; the `dvh`
+     line below it wins wherever it's understood. Identical to `100vh` on
+     desktop, where browser chrome doesn't collapse — no desktop impact. */
+  .h-app-shell {
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  /* Bottom offset for a sticky/fixed element that must clear BottomNav
+     (nav.tsx: `h-16` content + its own `pb-safe`). BottomNav's real height
+     varies by device once viewport-fit=cover activates safe-area-inset-bottom
+     (~34px on notched iPhones, 0 elsewhere) — a flat `bottom-16` under- or
+     over-shoots depending on the device. This mirrors the nav's own box
+     exactly. Irrelevant (and harmless) wherever the element reverts to
+     `position: static` at larger breakpoints, since `bottom` has no effect
+     there regardless of its value. */
+  .bottom-nav-safe {
+    bottom: calc(4rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Same idea as .bottom-nav-safe, for the floating action buttons — those sit
+     an extra 1rem above the nav by established convention (a round FAB reads
+     as floating, not flush, unlike a full-width action bar). */
+  .fab-safe {
+    bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* Default bottom clearance for AppLayout's scroll container — covers the
+     nav (4rem) plus 1rem of breathing room, safe-area aware. Pages with their
+     own sticky footer or FAB override/replace this locally; this is the
+     baseline for everything else. */
+  .pb-nav-safe {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom, 0px));
+  }
+
   .pb-safe {
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }

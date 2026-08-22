@@ -751,7 +751,7 @@ function CalendarView({
 
       {/* Day detail sheet */}
       <Sheet open={!!selectedDay} onOpenChange={(open) => !open && setSelectedDay(null)}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
+        <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
           {selectedDay && (
             <>
               <SheetHeader className="px-5 pt-2 pb-4 border-b">
@@ -815,7 +815,9 @@ function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
     setLogging(true);
     setLogError(false);
     try {
-      const today = new Date().toISOString().split('T')[0];
+      // Full ISO datetime — the server's date validator (z.string().datetime())
+      // rejects a bare "YYYY-MM-DD" string, which is what caused "Log all" to 400.
+      const today = new Date().toISOString();
       await Promise.all(
         dueToday.map((e) =>
           createMutation.mutateAsync({
@@ -1412,7 +1414,7 @@ function CategoryDrilldownSheet({
 
   return (
     <Sheet open={!!category} onOpenChange={(open) => !open && onClose()}>
-      <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
+      <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
         {category && (
           <>
             <SheetHeader className="px-5 pt-2 pb-4 border-b">
@@ -1639,7 +1641,7 @@ export default function PersonalExpensesPage() {
           {view === 'ai' && (
             <div className="space-y-4">
               <AIInsightsPanel scope="personal" currency={preferredCurrency} />
-              <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+              <div className="h-[65dvh] flex flex-col border rounded-xl overflow-hidden bg-card">
                 <AIChatPanel
                   mutationFn={(msg) => aiService.chatbotPersonal(msg)}
                   placeholder="Ask about your expenses…"
@@ -1656,7 +1658,7 @@ export default function PersonalExpensesPage() {
       <Button
         asChild
         size="icon"
-        className="fixed bottom-20 right-5 h-14 w-14 rounded-full shadow-lg z-10"
+        className="fixed fab-safe right-5 h-14 w-14 rounded-full shadow-lg z-10"
       >
         <Link to="/expenses/new" aria-label="Add expense">
           <Plus className="h-6 w-6" />

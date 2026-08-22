@@ -365,7 +365,7 @@ function CalendarView({ groupId, currency }: { groupId: string; currency: string
       )}
 
       <Sheet open={!!selectedDay} onOpenChange={(open) => !open && setSelectedDay(null)}>
-        <SheetContent side="bottom" className="max-h-[85vh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
+        <SheetContent side="bottom" className="max-h-[85dvh] overflow-y-auto rounded-t-3xl px-0 pb-safe">
           {selectedDay && (
             <>
               <SheetHeader className="px-5 pt-2 pb-4 border-b">
@@ -454,7 +454,7 @@ function GroupExpensesTab({ groupId, currency }: { groupId: string; currency: st
       </AnimatePresence>
 
       {/* FAB */}
-      <Button asChild size="icon" className="fixed bottom-20 right-5 h-14 w-14 rounded-full shadow-lg z-10">
+      <Button asChild size="icon" className="fixed fab-safe right-5 h-14 w-14 rounded-full shadow-lg z-10">
         <Link to={`/groups/${groupId}/expenses/new`} aria-label="Add expense"><Plus className="h-6 w-6" /></Link>
       </Button>
     </div>
@@ -778,7 +778,7 @@ export default function GroupDetailPage() {
           {activeTab === 'ai' && (
             <div className="space-y-4">
               <AIInsightsPanel scope="group" groupId={groupId!} currency={group.defaultCurrency} />
-              <div className="h-[65vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+              <div className="h-[65dvh] flex flex-col border rounded-xl overflow-hidden bg-card">
                 <AIChatPanel
                   mutationFn={(msg) => aiService.chatbotGroup(groupId!, msg)}
                   placeholder="Ask about group expenses…"

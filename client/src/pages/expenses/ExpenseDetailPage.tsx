@@ -272,7 +272,7 @@ export default function ExpenseDetailPage() {
         <h2 className="text-base font-semibold mb-3 px-1 flex items-center gap-2">
           <MessageCircle className="h-4 w-4" /> Ask AI
         </h2>
-        <div className="h-[50vh] flex flex-col border rounded-xl overflow-hidden bg-card">
+        <div className="h-[50dvh] flex flex-col border rounded-xl overflow-hidden bg-card">
           <AIChatPanel
             mutationFn={(msg) => aiService.chatbot(tripId!, msg)}
             placeholder="Ask about this expense…"

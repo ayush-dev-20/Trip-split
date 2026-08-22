@@ -210,7 +210,7 @@ export default function CreatePersonalExpensePage() {
   }
 
   return (
-    <div className="max-w-lg mx-auto px-4 py-6 space-y-5 pb-24">
+    <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button variant="ghost" size="icon" asChild>
@@ -422,15 +422,20 @@ export default function CreatePersonalExpensePage() {
             </CardContent>
           </Card>
 
-          {/* Submit */}
-          <Button
-            type="submit"
-            className="w-full"
-            disabled={isPending || !form.title.trim() || !form.amount}
-          >
-            {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-            {isEditMode ? 'Update Expense' : 'Save Expense'}
-          </Button>
+          {/* Submit — sticky above the mobile bottom nav so it's reachable
+              without scrolling to the end of a long form. Reverts to a normal
+              inline button in the document flow at lg: and up, where there's
+              no bottom nav to clear. */}
+          <div className="sticky bottom-nav-safe -mx-4 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm z-30 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={isPending || !form.title.trim() || !form.amount}
+            >
+              {isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+              {isEditMode ? 'Update Expense' : 'Save Expense'}
+            </Button>
+          </div>
         </form>
       )}
     </div>

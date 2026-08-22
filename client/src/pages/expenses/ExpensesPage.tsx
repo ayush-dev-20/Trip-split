@@ -225,7 +225,7 @@ export default function ExpensesPage() {
       <Button
         asChild
         size="lg"
-        className="fixed bottom-20 right-4 h-14 w-14 rounded-full shadow-lg sm:hidden z-30"
+        className="fixed fab-safe right-4 h-14 w-14 rounded-full shadow-lg sm:hidden z-30"
       >
         <Link to={`/trips/${tripId}/expenses/new`} aria-label="Add Expense">
           <Plus className="h-6 w-6" />

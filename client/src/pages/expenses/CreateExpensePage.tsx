@@ -853,14 +853,18 @@ export default function CreateExpensePage() {
           </CardContent>
         </Card>
 
-        <div className="flex gap-3">
-          <Button variant="outline" asChild className="flex-1">
-            <Link to={`/trips/${tripId}/expenses`}>Cancel</Link>
-          </Button>
-          <Button type="submit" disabled={isPending || !form.title.trim() || !form.amount} className="flex-1">
-            {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {isPending ? (isEditMode ? 'Saving…' : 'Adding…') : (isEditMode ? 'Save Changes' : 'Add Expense')}
-          </Button>
+        {/* Sticky above the mobile bottom nav so the primary action is always
+            reachable on a long form; reverts to normal inline flow at lg: and up. */}
+        <div className="sticky bottom-nav-safe -mx-4 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm z-30 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
+          <div className="flex gap-3">
+            <Button variant="outline" asChild className="flex-1">
+              <Link to={`/trips/${tripId}/expenses`}>Cancel</Link>
+            </Button>
+            <Button type="submit" disabled={isPending || !form.title.trim() || !form.amount} className="flex-1">
+              {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isPending ? (isEditMode ? 'Saving…' : 'Adding…') : (isEditMode ? 'Save Changes' : 'Add Expense')}
+            </Button>
+          </div>
         </div>
       </form>
 

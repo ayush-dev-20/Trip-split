@@ -3,30 +3,38 @@ import { billingService } from '@/services/billingService';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
-import { Check, Zap, Crown, ArrowDown, Loader2, Sparkles } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { Check, Minus, ArrowDown, Loader2, Sparkles } from 'lucide-react';
+import { motion, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useState } from 'react';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
 import toast from 'react-hot-toast';
 
+// Feature list/copy mirrors LandingPricing exactly, so the plan someone
+// picks on the marketing page reads identically here. Tier-gating logic
+// itself lives in server/src/config/plans.ts — this is presentation only.
 const plans = [
   {
     tier: 'FREE' as const,
     name: 'Free',
     price: '₹0',
     period: 'forever',
-    icon: Zap,
-    color: '',
+    tagline: 'Everything you need to stop arguing about money.',
+    highlighted: false,
     features: [
-      '2 active trips',
-      '5 members per trip',
-      'Basic expense splitting',
-      'Group management',
-      'Equal split type',
+      ['2 active trips', true],
+      ['5 members per trip', true],
+      ['All 4 split types', true],
+      ['Debt simplification & UPI settling', true],
+      ['AI receipt scanning & natural language', true],
+      ['AI trip planner, packing lists & chat', true],
+      ['Spending insights & anomaly alerts', true],
+      ['Receipt line-item itemisation', false],
+      ['Multi-currency conversion', false],
+      ['Advanced analytics & all charts', false],
+      ['CSV / PDF export', false],
     ],
   },
   {
@@ -34,28 +42,30 @@ const plans = [
     name: 'Pro',
     price: '₹69',
     period: '/month',
-    icon: Crown,
-    color: 'border-primary ring-2 ring-primary/20',
-    popular: true,
+    tagline: 'For people whose group chat never stops planning.',
+    highlighted: true,
     features: [
-      'Unlimited trips & members',
-      'All 4 split types',
-      'AI receipt scanning & itemisation',
-      'AI chatbot, trip planner & insights',
-      'Advanced analytics & year-in-review',
-      'Multi-currency support',
-      'PDF & CSV export',
-      'Custom reports',
-      'Priority support',
+      ['Unlimited active trips', true],
+      ['Unlimited members per trip', true],
+      ['All 4 split types', true],
+      ['Debt simplification & UPI settling', true],
+      ['AI receipt scanning & natural language', true],
+      ['AI trip planner, packing lists & chat', true],
+      ['Spending insights & anomaly alerts', true],
+      ['Receipt line-item itemisation', true],
+      ['Multi-currency conversion', true],
+      ['Advanced analytics & all charts', true],
+      ['CSV / PDF export, Year in Review & priority support', true],
     ],
   },
-];
+] as const;
 
 export default function BillingPage() {
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
   const currentTier = user?.tier ?? 'FREE';
   const queryClient = useQueryClient();
+  const reduce = useReducedMotion();
 
   const [upgradingTier, setUpgradingTier] = useState<'PRO' | null>(null);
   const [showDowngrade, setShowDowngrade] = useState(false);
@@ -122,75 +132,76 @@ export default function BillingPage() {
         </Card>
       )}
 
-      {/* Plan Cards */}
-      <div className="grid md:grid-cols-3 gap-4 sm:gap-5 pt-3">
+      {/* Plan Cards — visual treatment matches components/landing/LandingPricing.tsx */}
+      <div className="mx-auto mt-4 grid max-w-4xl gap-6 lg:grid-cols-2">
         {plans.map((plan, i) => (
           <motion.div
             key={plan.tier}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.06 }}
-            className="relative"
-          >
-            {plan.popular && (
-              <Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 z-10 shadow-sm">
-                Most Popular
-              </Badge>
+            transition={{ delay: i * 0.06, duration: 0.5 }}
+            whileHover={reduce ? undefined : { y: -4 }}
+            className={cn(
+              'relative flex h-full flex-col rounded-2xl border p-7 will-change-transform',
+              plan.highlighted
+                ? 'border-primary bg-card shadow-xl shadow-primary/10 ring-1 ring-primary/25'
+                : 'border-border bg-card',
             )}
-            <Card className={cn('flex flex-col h-full', plan.color)}>
-              <CardContent className="p-6 flex flex-col h-full">
-                <div className="flex items-center gap-3 mb-5">
-                  <div className={cn(
-                    'h-11 w-11 rounded-xl flex items-center justify-center',
-                    plan.tier === 'PRO' ? 'bg-primary/10 text-primary' :
-                    'bg-muted text-muted-foreground'
-                  )}>
-                    <plan.icon className="h-5 w-5" />
-                  </div>
-                  <div>
-                    <h3 className="font-semibold">{plan.name}</h3>
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-bold tracking-tight">{plan.price}</span>
-                      <span className="text-xs text-muted-foreground">{plan.period}</span>
-                    </div>
-                  </div>
-                </div>
+          >
+            {plan.highlighted && (
+              <span className="absolute -top-3 left-7 rounded-full bg-primary px-3 py-1 text-xs font-semibold text-primary-foreground">
+                Most popular
+              </span>
+            )}
 
-                <ul className="space-y-2.5 flex-1 mb-6">
-                  {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm">
-                      <Check className="h-4 w-4 text-success shrink-0 mt-0.5" />
-                      <span className="text-foreground/80">{feature}</span>
-                    </li>
-                  ))}
-                </ul>
+            <h3 className="text-lg font-semibold tracking-tight">{plan.name}</h3>
+            <p className="mt-1.5 text-sm text-muted-foreground">{plan.tagline}</p>
 
-                {currentTier === plan.tier ? (
-                  <Button variant="outline" disabled className="w-full">Current Plan</Button>
-                ) : plan.tier === 'FREE' ? (
-                  currentTier !== 'FREE' ? (
-                    <Button variant="outline" className="w-full" onClick={() => setShowDowngrade(true)}>
-                      Downgrade
-                    </Button>
+            <p className="mt-6 flex items-baseline gap-1.5">
+              <span className="text-4xl font-bold tracking-tight">{plan.price}</span>
+              <span className="text-sm text-muted-foreground">{plan.period}</span>
+            </p>
+
+            {currentTier === plan.tier ? (
+              <Button variant="outline" disabled className="mt-6 h-11 w-full">Current Plan</Button>
+            ) : plan.tier === 'FREE' ? (
+              currentTier !== 'FREE' ? (
+                <Button variant="outline" className="mt-6 h-11 w-full" onClick={() => setShowDowngrade(true)}>
+                  Downgrade
+                </Button>
+              ) : (
+                <Button variant="ghost" disabled className="mt-6 h-11 w-full">Free Forever</Button>
+              )
+            ) : (
+              <Button
+                variant={plan.highlighted ? 'default' : 'outline'}
+                onClick={() => {
+                  setUpgradingTier(plan.tier as 'PRO');
+                  upgradeMutation.mutate(plan.tier as 'PRO');
+                }}
+                disabled={upgradeMutation.isPending}
+                className="mt-6 h-11 w-full"
+              >
+                {upgradingTier === plan.tier && upgradeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {upgradingTier === plan.tier && upgradeMutation.isPending ? 'Upgrading…' : `Upgrade to ${plan.name}`}
+              </Button>
+            )}
+
+            <ul className="mt-7 space-y-3 border-t border-border pt-6">
+              {plan.features.map(([label, included]) => (
+                <li key={label} className="flex items-start gap-2.5 text-sm">
+                  {included ? (
+                    <Check className="mt-0.5 h-4 w-4 shrink-0 text-success" aria-hidden="true" />
                   ) : (
-                    <Button variant="ghost" disabled className="w-full">Free Forever</Button>
-                  )
-                ) : (
-                  <Button
-                    variant={plan.tier === 'PRO' ? 'default' : 'secondary'}
-                    onClick={() => {
-                      setUpgradingTier(plan.tier as 'PRO');
-                      upgradeMutation.mutate(plan.tier as 'PRO');
-                    }}
-                    disabled={upgradeMutation.isPending}
-                    className="w-full"
-                  >
-                    {upgradingTier === plan.tier && upgradeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {upgradingTier === plan.tier && upgradeMutation.isPending ? 'Upgrading…' : `Upgrade to ${plan.name}`}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
+                    <Minus className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                  )}
+                  <span className={cn(included ? 'text-foreground/80' : 'text-muted-foreground/60 line-through')}>
+                    {label}
+                  </span>
+                  <span className="sr-only">{included ? 'included' : 'not included'}</span>
+                </li>
+              ))}
+            </ul>
           </motion.div>
         ))}
       </div>

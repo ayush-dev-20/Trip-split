@@ -168,7 +168,7 @@ export default function PackingListPage() {
       )}
 
       {/* Quick-add composer — stays pinned above the mobile nav while the list scrolls */}
-      <div className="sticky bottom-16 lg:bottom-2 z-30 pt-1">
+      <div className="sticky bottom-nav-safe lg:bottom-2 z-30 pt-1">
         <Card className="shadow-lg">
           <CardContent className="p-3 space-y-2">
             <form onSubmit={handleAddItem} className="flex gap-2">

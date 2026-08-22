@@ -207,15 +207,18 @@ export default function CreateTripPage() {
           </CardContent>
         </Card>
 
-        {/* Submit */}
-        <div className="flex gap-3 pt-2">
-          <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(-1)}>
-            Cancel
-          </Button>
-          <Button type="submit" disabled={createTrip.isPending || !form.name.trim()} className="flex-1">
-            {createTrip.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {createTrip.isPending ? 'Creating...' : 'Create Trip'}
-          </Button>
+        {/* Sticky above the mobile bottom nav so the primary action is always
+            reachable on a long form; reverts to normal inline flow at lg: and up. */}
+        <div className="sticky bottom-nav-safe -mx-4 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm z-30 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:pt-2 lg:backdrop-blur-none">
+          <div className="flex gap-3">
+            <Button type="button" variant="outline" className="flex-1" onClick={() => navigate(-1)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={createTrip.isPending || !form.name.trim()} className="flex-1">
+              {createTrip.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {createTrip.isPending ? 'Creating...' : 'Create Trip'}
+            </Button>
+          </div>
         </div>
       </form>
     </div>

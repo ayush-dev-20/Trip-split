@@ -3,17 +3,22 @@ import { useNavigate } from 'react-router';
 import { useAuth } from '@clerk/clerk-react';
 import { useCompleteOnboarding } from '@/hooks/useAuth';
 import {
-  Plane, DollarSign, Users, Sparkles, ArrowRight, Check,
+  Plane, Home, Wallet, Sparkles, ArrowRight, Check,
   Globe, MapPin, UserPlus, Link as LinkIcon,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/authStore';
+import { useThemeStore } from '@/stores/themeStore';
+// Reused from the marketing shell so onboarding feels like a continuation of
+// the landing page rather than a different product — same easing, same motion.
+import { Reveal, EASE } from '@/components/landing/Reveal';
+import logoDark from '@/assets/logo/tripsplit-dark-64.svg';
+import logoLight from '@/assets/logo/tripsplit-light-96.svg';
 
 const CURRENCIES = [
   { code: 'USD', label: 'US Dollar', symbol: '$' },
@@ -28,18 +33,48 @@ const CURRENCIES = [
   { code: 'THB', label: 'Thai Baht', symbol: '฿' },
 ];
 
+// Same three-scope concept as components/landing/LandingScopes.tsx, condensed
+// to icon + one line — a first-touch explainer for what "scope" means here.
+const SCOPES = [
+  { icon: Plane, tone: 'hsl(var(--chart-1))', title: 'Trips', body: 'Shared travel, split with the group.' },
+  { icon: Home, tone: 'hsl(var(--chart-2))', title: 'Groups', body: 'Flatmates, family — an ongoing tab.' },
+  { icon: Wallet, tone: 'hsl(var(--chart-3))', title: 'Personal', body: 'Your own spending, always private.' },
+];
+
 const TOTAL_STEPS = 4;
 
 const slideVariants = {
-  enter: (dir: number) => ({ x: dir > 0 ? 40 : -40, opacity: 0 }),
+  enter: (dir: number) => ({ x: dir > 0 ? 32 : -32, opacity: 0 }),
   center: { x: 0, opacity: 1 },
-  exit: (dir: number) => ({ x: dir > 0 ? -40 : 40, opacity: 0 }),
+  exit: (dir: number) => ({ x: dir > 0 ? -32 : 32, opacity: 0 }),
 };
+
+/** Low-contrast ambient wash, echoing LandingHero's Aurora but static and contained. */
+function OnboardingAurora() {
+  const reduce = useReducedMotion();
+  return (
+    <div className="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+      <motion.div
+        className="absolute -top-40 left-1/2 h-[34rem] w-[34rem] -translate-x-1/2 rounded-full opacity-[0.14] blur-3xl dark:opacity-[0.2]"
+        style={{ background: 'radial-gradient(circle, hsl(var(--chart-1)) 0%, transparent 68%)' }}
+        animate={reduce ? undefined : { x: ['-52%', '-46%', '-52%'] }}
+        transition={{ duration: 20, repeat: Infinity, ease: 'easeInOut' }}
+      />
+      <motion.div
+        className="absolute -right-32 bottom-0 h-[26rem] w-[26rem] rounded-full opacity-[0.10] blur-3xl dark:opacity-[0.15]"
+        style={{ background: 'radial-gradient(circle, hsl(var(--chart-2)) 0%, transparent 68%)' }}
+        animate={reduce ? undefined : { y: [0, -20, 0] }}
+        transition={{ duration: 24, repeat: Infinity, ease: 'easeInOut' }}
+      />
+    </div>
+  );
+}
 
 export default function OnboardingPage() {
   const { isLoaded, isSignedIn } = useAuth();
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
+  const { resolvedTheme } = useThemeStore();
   const completeOnboarding = useCompleteOnboarding();
 
   const [step, setStep] = useState(0);
@@ -74,19 +109,28 @@ export default function OnboardingPage() {
   }
 
   const progressPct = ((step + 1) / TOTAL_STEPS) * 100;
+  const isDark = resolvedTheme() === 'dark';
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background p-6">
-      <div className="w-full max-w-lg">
+    <div className="relative min-h-screen overflow-x-clip bg-background p-6 text-foreground">
+      <OnboardingAurora />
+
+      <div className="mx-auto flex min-h-screen w-full max-w-xl flex-col justify-center py-10">
+        {/* Brand mark */}
+        <Reveal className="mb-8 flex items-center justify-center gap-2.5">
+          <img src={isDark ? logoDark : logoLight} alt="" className="h-8 w-8" aria-hidden="true" />
+          <span className="text-lg font-bold tracking-tight">TripSplit</span>
+        </Reveal>
+
         {/* Step indicator */}
-        <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-medium text-muted-foreground">
+        <div className="mb-3 flex items-center justify-between">
+          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Step {step + 1} of {TOTAL_STEPS}
           </span>
           {step < TOTAL_STEPS - 1 && (
             <button
               onClick={handleSkip}
-              className="text-xs text-muted-foreground hover:text-foreground transition-colors"
+              className="rounded-md text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               Skip setup
             </button>
@@ -102,218 +146,221 @@ export default function OnboardingPage() {
             initial="enter"
             animate="center"
             exit="exit"
-            transition={{ duration: 0.22, ease: 'easeInOut' }}
+            transition={{ duration: 0.32, ease: EASE }}
           >
-            <Card>
-              <CardContent className="p-8">
+            <div className="rounded-2xl border border-border bg-card p-7 shadow-xl shadow-primary/5 sm:p-9">
 
-                {/* ── Step 0: Welcome ─────────────────────────────────── */}
-                {step === 0 && (
-                  <div className="text-center space-y-6">
-                    <div className="flex items-center justify-center h-16 w-16 rounded-2xl bg-primary/10 text-primary mx-auto">
-                      <Plane className="h-8 w-8" />
+              {/* ── Step 0: Welcome ─────────────────────────────────── */}
+              {step === 0 && (
+                <div className="space-y-7 text-center">
+                  <div>
+                    <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <Plane className="h-7 w-7" aria-hidden="true" />
                     </div>
-                    <div>
-                      <h2 className="text-2xl font-bold">
-                        Welcome{user?.name ? `, ${user.name.split(' ')[0]}` : ''}!
-                      </h2>
-                      <p className="text-muted-foreground mt-2">
-                        Let's set up your TripSplit account in 3 quick steps.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 py-2">
-                      {[
-                        { icon: DollarSign, label: 'Track Expenses', desc: 'Multi-currency' },
-                        { icon: Users, label: 'Split Bills', desc: '4 split types' },
-                        { icon: Sparkles, label: 'AI Insights', desc: 'Smart analysis' },
-                      ].map(({ icon: Icon, label, desc }) => (
-                        <div key={label} className="text-center p-3 rounded-xl bg-muted">
-                          <Icon className="h-5 w-5 text-primary mx-auto mb-2" />
-                          <p className="text-xs font-medium">{label}</p>
-                          <p className="text-xs text-muted-foreground">{desc}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <Button onClick={goNext} className="w-full">
-                      Get Started <ArrowRight className="h-4 w-4 ml-2" />
-                    </Button>
+                    <h2 className="text-balance text-2xl font-bold tracking-tight sm:text-[1.75rem]">
+                      Welcome{user?.name ? `, ${user.name.split(' ')[0]}` : ''} 👋
+                    </h2>
+                    <p className="mt-2.5 text-pretty text-sm leading-relaxed text-muted-foreground">
+                      TripSplit keeps trips, groups and personal spending in one place.
+                      Three quick steps and you're set up.
+                    </p>
                   </div>
-                )}
 
-                {/* ── Step 1: Currency + Timezone ─────────────────────── */}
-                {step === 1 && (
-                  <div className="space-y-6">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center h-12 w-12 rounded-2xl bg-primary/10 text-primary mx-auto mb-4">
-                        <Globe className="h-6 w-6" />
-                      </div>
-                      <h2 className="text-xl font-bold">Your Default Currency</h2>
-                      <p className="text-muted-foreground text-sm mt-1">
-                        Choose the currency you use most. You can always change this later.
-                      </p>
-                    </div>
+                  <span className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3 py-1.5 text-xs font-medium text-muted-foreground">
+                    <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
+                    AI receipt scanning &amp; trip planning — free, no card
+                  </span>
 
-                    <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto pr-1">
-                      {CURRENCIES.map((c) => (
-                        <button
-                          key={c.code}
-                          onClick={() => setCurrency(c.code)}
-                          className={cn(
-                            'flex items-center gap-2 px-3 py-2.5 rounded-lg border text-sm font-medium transition-colors text-left',
-                            currency === c.code
-                              ? 'border-primary bg-primary/10 text-primary'
-                              : 'border-border bg-background hover:bg-muted text-foreground'
-                          )}
+                  <ul className="grid grid-cols-3 gap-2.5 text-left">
+                    {SCOPES.map((s) => (
+                      <li
+                        key={s.title}
+                        className="rounded-xl border border-border bg-background/60 p-3.5"
+                      >
+                        <span
+                          className="flex h-8 w-8 items-center justify-center rounded-lg"
+                          style={{ backgroundColor: `color-mix(in srgb, ${s.tone} 14%, transparent)` }}
                         >
-                          <span className="text-base w-6 text-center">{c.symbol}</span>
-                          <span className="truncate">{c.code}</span>
-                          {currency === c.code && (
-                            <Check className="h-3.5 w-3.5 ml-auto flex-shrink-0" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
+                          <s.icon className="h-4 w-4" style={{ color: s.tone }} aria-hidden="true" />
+                        </span>
+                        <p className="mt-2.5 text-sm font-semibold tracking-tight">{s.title}</p>
+                        <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{s.body}</p>
+                      </li>
+                    ))}
+                  </ul>
 
-                    <div className="flex gap-3">
-                      <Button variant="outline" onClick={goBack} className="flex-1">
-                        Back
-                      </Button>
-                      <Button onClick={goNext} className="flex-1">
-                        Continue <ArrowRight className="h-4 w-4 ml-2" />
-                      </Button>
+                  <Button onClick={goNext} className="h-11 w-full text-[15px]">
+                    Get started <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+                  </Button>
+                </div>
+              )}
+
+              {/* ── Step 1: Currency ─────────────────────────────────── */}
+              {step === 1 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <Globe className="h-6 w-6" aria-hidden="true" />
                     </div>
+                    <h2 className="text-xl font-bold tracking-tight">Your default currency</h2>
+                    <p className="mt-1.5 text-sm text-muted-foreground">
+                      Every expense converts to this automatically. Change it anytime in Settings.
+                    </p>
                   </div>
-                )}
 
-                {/* ── Step 2: Create or Join ───────────────────────────── */}
-                {step === 2 && (
-                  <div className="space-y-6">
-                    <div className="text-center">
-                      <div className="flex items-center justify-center h-12 w-12 rounded-2xl bg-primary/10 text-primary mx-auto mb-4">
-                        <MapPin className="h-6 w-6" />
-                      </div>
-                      <h2 className="text-xl font-bold">Your First Trip</h2>
-                      <p className="text-muted-foreground text-sm mt-1">
-                        Create a new trip or join one a friend shared with you.
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
+                  <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1">
+                    {CURRENCIES.map((c) => (
                       <button
-                        onClick={() => setTripChoice('create')}
+                        key={c.code}
+                        onClick={() => setCurrency(c.code)}
                         className={cn(
-                          'p-4 rounded-xl border-2 text-center transition-colors',
-                          tripChoice === 'create'
-                            ? 'border-primary bg-primary/10'
-                            : 'border-border hover:border-primary/50'
+                          'flex items-center gap-2 rounded-lg border px-3 py-2.5 text-left text-sm font-medium transition-colors',
+                          currency === c.code
+                            ? 'border-primary bg-primary/10 text-primary'
+                            : 'border-border bg-background text-foreground hover:bg-muted',
                         )}
                       >
-                        <Plane className="h-6 w-6 text-primary mx-auto mb-2" />
-                        <p className="font-semibold text-sm">Create a trip</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Start fresh</p>
+                        <span className="w-6 text-center text-base">{c.symbol}</span>
+                        <span className="truncate">{c.code}</span>
+                        {currency === c.code && <Check className="ml-auto h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
                       </button>
-                      <button
-                        onClick={() => setTripChoice('join')}
-                        className={cn(
-                          'p-4 rounded-xl border-2 text-center transition-colors',
-                          tripChoice === 'join'
-                            ? 'border-primary bg-primary/10'
-                            : 'border-border hover:border-primary/50'
-                        )}
-                      >
-                        <LinkIcon className="h-6 w-6 text-primary mx-auto mb-2" />
-                        <p className="font-semibold text-sm">Join a trip</p>
-                        <p className="text-xs text-muted-foreground mt-0.5">Use invite code</p>
-                      </button>
-                    </div>
-
-                    {tripChoice === 'join' && (
-                      <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: 'auto' }}
-                        className="space-y-2"
-                      >
-                        <Label htmlFor="joinCode">Invite Code</Label>
-                        <Input
-                          id="joinCode"
-                          placeholder="Paste invite code here…"
-                          value={joinCode}
-                          onChange={(e) => setJoinCode(e.target.value)}
-                        />
-                      </motion.div>
-                    )}
-
-                    <div className="flex gap-3">
-                      <Button variant="outline" onClick={goBack} className="flex-1">
-                        Back
-                      </Button>
-                      <Button
-                        onClick={goNext}
-                        className="flex-1"
-                        disabled={tripChoice === 'join' && !joinCode.trim()}
-                      >
-                        Continue <ArrowRight className="h-4 w-4 ml-2" />
-                      </Button>
-                    </div>
-
-                    <button
-                      onClick={goNext}
-                      className="w-full text-xs text-muted-foreground hover:text-foreground text-center transition-colors"
-                    >
-                      I'll do this later →
-                    </button>
+                    ))}
                   </div>
-                )}
 
-                {/* ── Step 3: Invite Friends ────────────────────────────── */}
-                {step === 3 && (
-                  <div className="text-center space-y-6">
-                    <div className="flex items-center justify-center h-12 w-12 rounded-2xl bg-green-100 dark:bg-green-900/30 text-green-600 mx-auto">
-                      <UserPlus className="h-6 w-6" />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold">Invite Your Crew</h2>
-                      <p className="text-muted-foreground text-sm mt-1">
-                        Add friends by email so they can join your trips.
-                      </p>
-                    </div>
-
-                    <div className="space-y-2 text-left">
-                      <Label htmlFor="emails">Email addresses</Label>
-                      <Input
-                        id="emails"
-                        placeholder="alice@example.com, bob@example.com"
-                        value={inviteEmails}
-                        onChange={(e) => setInviteEmails(e.target.value)}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Separate multiple addresses with commas.
-                      </p>
-                    </div>
-
-                    <Button
-                      onClick={handleFinish}
-                      disabled={completeOnboarding.isPending}
-                      className="w-full"
-                    >
-                      {completeOnboarding.isPending ? 'Setting up…' : 'Go to Dashboard'}
-                      {!completeOnboarding.isPending && <Check className="h-4 w-4 ml-2" />}
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={goBack} className="h-11 flex-1">Back</Button>
+                    <Button onClick={goNext} className="h-11 flex-1">
+                      Continue <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
                     </Button>
+                  </div>
+                </div>
+              )}
 
+              {/* ── Step 2: Create or Join ───────────────────────────── */}
+              {step === 2 && (
+                <div className="space-y-6">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                      <MapPin className="h-6 w-6" aria-hidden="true" />
+                    </div>
+                    <h2 className="text-xl font-bold tracking-tight">Your first trip</h2>
+                    <p className="mt-1.5 text-sm text-muted-foreground">
+                      Create one, or join a friend's with their invite code.
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
                     <button
-                      onClick={handleFinish}
-                      disabled={completeOnboarding.isPending}
-                      className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors"
+                      onClick={() => setTripChoice('create')}
+                      className={cn(
+                        'rounded-xl border-2 p-4 text-center transition-colors',
+                        tripChoice === 'create'
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border hover:border-primary/50',
+                      )}
                     >
-                      Skip and go to dashboard →
+                      <Plane className="mx-auto mb-2 h-6 w-6 text-primary" aria-hidden="true" />
+                      <p className="text-sm font-semibold">Create a trip</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Start fresh</p>
+                    </button>
+                    <button
+                      onClick={() => setTripChoice('join')}
+                      className={cn(
+                        'rounded-xl border-2 p-4 text-center transition-colors',
+                        tripChoice === 'join'
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border hover:border-primary/50',
+                      )}
+                    >
+                      <LinkIcon className="mx-auto mb-2 h-6 w-6 text-primary" aria-hidden="true" />
+                      <p className="text-sm font-semibold">Join a trip</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">Use invite code</p>
                     </button>
                   </div>
-                )}
 
-              </CardContent>
-            </Card>
+                  {tripChoice === 'join' && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      transition={{ duration: 0.3, ease: EASE }}
+                      className="space-y-2"
+                    >
+                      <Label htmlFor="joinCode">Invite code</Label>
+                      <Input
+                        id="joinCode"
+                        placeholder="Paste invite code here…"
+                        value={joinCode}
+                        onChange={(e) => setJoinCode(e.target.value)}
+                      />
+                    </motion.div>
+                  )}
+
+                  <div className="flex gap-3">
+                    <Button variant="outline" onClick={goBack} className="h-11 flex-1">Back</Button>
+                    <Button
+                      onClick={goNext}
+                      className="h-11 flex-1"
+                      disabled={tripChoice === 'join' && !joinCode.trim()}
+                    >
+                      Continue <ArrowRight className="ml-1 h-4 w-4" aria-hidden="true" />
+                    </Button>
+                  </div>
+
+                  <button
+                    onClick={goNext}
+                    className="w-full rounded-md text-center text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    I'll do this later →
+                  </button>
+                </div>
+              )}
+
+              {/* ── Step 3: Invite Friends ────────────────────────────── */}
+              {step === 3 && (
+                <div className="space-y-6 text-center">
+                  <div>
+                    <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-success/10 text-success">
+                      <UserPlus className="h-6 w-6" aria-hidden="true" />
+                    </div>
+                    <h2 className="text-xl font-bold tracking-tight">Invite your crew</h2>
+                    <p className="mt-1.5 text-sm text-muted-foreground">
+                      Add friends by email so they can join your trips.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 text-left">
+                    <Label htmlFor="emails">Email addresses</Label>
+                    <Input
+                      id="emails"
+                      placeholder="alice@example.com, bob@example.com"
+                      value={inviteEmails}
+                      onChange={(e) => setInviteEmails(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Separate multiple addresses with commas. Free plan covers 5 members per trip.
+                    </p>
+                  </div>
+
+                  <Button
+                    onClick={handleFinish}
+                    disabled={completeOnboarding.isPending}
+                    className="h-11 w-full"
+                  >
+                    {completeOnboarding.isPending ? 'Setting up…' : 'Go to dashboard'}
+                    {!completeOnboarding.isPending && <Check className="ml-1 h-4 w-4" aria-hidden="true" />}
+                  </Button>
+
+                  <button
+                    onClick={handleFinish}
+                    disabled={completeOnboarding.isPending}
+                    className="w-full rounded-md text-center text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    Skip and go to dashboard →
+                  </button>
+                </div>
+              )}
+
+            </div>
           </motion.div>
         </AnimatePresence>
       </div>

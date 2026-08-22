@@ -29,6 +29,15 @@ import exportRoutes from './routes/exportRoutes';
 
 const app = express();
 
+// This is a JSON API consumed by a SPA that does its own client-side caching
+// (TanStack Query) — HTTP conditional-GET buys nothing here. Express's
+// default ETag generation still runs the full route handler and DB query
+// before comparing hashes, so a 304 costs exactly as much server time as a
+// 200; disabling it removes that per-response hashing/header-parsing
+// overhead and stops 304s from misleadingly looking "cached but slow" in
+// DevTools when the real cost is upstream (auth + DB round trip).
+app.set('etag', false);
+
 // ──────────────────────────────────
 // Global Middleware
 // ──────────────────────────────────

@@ -177,12 +177,18 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <Button type="submit" disabled={updateProfile.isPending || isUpiInvalid}>
-              {updateProfile.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {updateProfile.isPending ? 'Saving…' : 'Save Changes'}
-            </Button>
           </CardContent>
         </Card>
+
+        {/* Sticky above the mobile bottom nav so the primary action is always
+            reachable on a long form; reverts to its original inline placement
+            at lg: and up. */}
+        <div className="sticky bottom-nav-safe -mx-4 mt-6 border-t border-border bg-background/95 px-4 py-3 backdrop-blur-sm z-30 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0 lg:backdrop-blur-none">
+          <Button type="submit" className="w-full lg:w-auto" disabled={updateProfile.isPending || isUpiInvalid}>
+            {updateProfile.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {updateProfile.isPending ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </div>
       </form>
 
       {/* Notifications */}

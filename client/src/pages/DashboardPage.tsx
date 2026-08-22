@@ -100,8 +100,18 @@ export default function DashboardPage() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [guideStep, setGuideStep] = useState(0);
 
-  // Sync trip statuses based on current date once when the dashboard mounts
+  // Sync trip statuses based on current date. This does a full trips lookup
+  // (plus writes for any trip that actually changed status) on the server, so
+  // firing it on every single dashboard mount was one extra unconditional
+  // round-trip on every page load for a check that's only ever meaningful
+  // once a trip crosses a start/end-date boundary — at most a few times a
+  // day. Throttled client-side to once per 30 minutes per browser instead.
   useEffect(() => {
+    const THROTTLE_MS = 30 * 60 * 1000;
+    const key = 'tripsplit:last-status-sync';
+    const last = Number(localStorage.getItem(key) ?? 0);
+    if (Date.now() - last < THROTTLE_MS) return;
+    localStorage.setItem(key, String(Date.now()));
     syncStatuses.mutate();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -152,13 +162,13 @@ export default function DashboardPage() {
 
       {/* Quick Guide Dialog */}
       <Dialog open={guideOpen} onOpenChange={setGuideOpen}>
-        <DialogContent className="max-w-md p-0 overflow-hidden">
+        <DialogContent className="max-w-2xl max-h-[85dvh] overflow-y-auto p-0">
           <DialogHeader className="sr-only">
             <DialogTitle>Quick Guide</DialogTitle>
           </DialogHeader>
 
           {/* Progress bar */}
-          <div className="flex gap-1 p-4 pb-0">
+          <div className="flex gap-1.5 p-6 pb-0">
             {guideSteps.map((_, i) => (
               <div
                 key={i}
@@ -177,23 +187,23 @@ export default function DashboardPage() {
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -40 }}
               transition={{ duration: 0.2 }}
-              className="p-6 space-y-5"
+              className="p-8 sm:p-9 space-y-6"
             >
               {/* Step icon + number */}
               <div className="flex items-center gap-4">
-                <div className={cn('h-14 w-14 rounded-2xl flex items-center justify-center shrink-0', current.color)}>
-                  <StepIcon className="h-7 w-7" />
+                <div className={cn('h-16 w-16 rounded-2xl flex items-center justify-center shrink-0', current.color)}>
+                  <StepIcon className="h-8 w-8" />
                 </div>
                 <div>
                   <p className="text-xs font-semibold text-muted-foreground tracking-widest uppercase">
                     Step {current.step} of {guideSteps.length}
                   </p>
-                  <h2 className="text-xl font-bold">{current.title}</h2>
+                  <h2 className="text-2xl font-bold tracking-tight">{current.title}</h2>
                 </div>
               </div>
 
               {/* Description */}
-              <p className="text-sm text-muted-foreground leading-relaxed">
+              <p className="text-[15px] text-muted-foreground leading-relaxed">
                 {current.description}
               </p>
 

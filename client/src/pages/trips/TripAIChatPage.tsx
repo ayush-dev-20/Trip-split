@@ -68,7 +68,7 @@ export default function TripAIChatPage() {
 
       <AIInsightsPanel scope="trip" tripId={tripId!} currency={trip?.budgetCurrency} />
 
-      <Card className="flex flex-col h-[60vh] sm:h-[500px]">
+      <Card className="flex flex-col h-[60dvh] sm:h-[500px]">
         {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {chatMessages.length === 0 && (
