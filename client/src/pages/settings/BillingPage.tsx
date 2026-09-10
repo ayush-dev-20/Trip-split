@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { format } from 'date-fns';
 import { billingService } from '@/services/billingService';
 import { loadRazorpayScript } from '@/lib/razorpay';
 import { useAuthStore } from '@/stores/authStore';
@@ -91,15 +92,18 @@ export default function BillingPage() {
   });
 
   /**
-   * Full Razorpay Standard Checkout flow: create a server-authoritative order
-   * (price is never taken from the client), open the modal, then verify the
-   * signature server-side before the tier is actually upgraded.
+   * Full Razorpay Standard Checkout flow for a RECURRING subscription: create
+   * a server-authoritative subscription (the Plan/price is never taken from
+   * the client), open the modal against that subscription_id, then verify
+   * the first payment's signature server-side before the tier is upgraded.
+   * Later renewals happen automatically on Razorpay's schedule and reach us
+   * via the /webhooks/razorpay handler, not through this flow again.
    */
   const handleUpgrade = async (tier: 'PRO') => {
     setUpgradingTier(tier);
     try {
       await loadRazorpayScript();
-      const order = await billingService.createOrder(tier);
+      const order = await billingService.createSubscription(tier);
 
       if (!window.Razorpay) {
         throw new Error('Razorpay checkout failed to load');
@@ -107,15 +111,13 @@ export default function BillingPage() {
 
       const razorpay = new window.Razorpay({
         key: import.meta.env.VITE_RAZORPAY_KEY_ID as string,
-        amount: order.amount,
-        currency: order.currency,
         name: 'TripSplit',
-        description: `Upgrade to ${tier}`,
-        order_id: order.orderId,
+        description: `TripSplit ${tier} — Monthly`,
+        subscription_id: order.subscriptionId,
         prefill: { name: user?.name, email: user?.email },
         handler: (response) => {
           verifyPaymentMutation.mutate({
-            razorpay_order_id: response.razorpay_order_id,
+            razorpay_subscription_id: response.razorpay_subscription_id,
             razorpay_payment_id: response.razorpay_payment_id,
             razorpay_signature: response.razorpay_signature,
           });
@@ -138,16 +140,23 @@ export default function BillingPage() {
     }
   };
 
+  // "Cancel" schedules cancellation at the end of the current billing cycle —
+  // access (and tier) is kept until then, not revoked immediately. The tier
+  // itself only flips to FREE once the period actually ends (via webhook).
   const downgradeMutation = useMutation({
     mutationFn: billingService.downgrade,
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
-      if (user) setUser({ ...user, tier: 'FREE' });
-      toast.success('Downgraded to Free plan');
+      if (user) setUser({ ...user, tier: data.tier });
+      toast.success(
+        data.cancelAtPeriodEnd
+          ? "Subscription cancelled — you'll keep Pro access until the end of your billing period."
+          : 'Downgraded to Free plan'
+      );
       setShowDowngrade(false);
     },
     onError: () => {
-      toast.error('Failed to downgrade plan');
+      toast.error('Failed to cancel subscription');
     },
   });
 
@@ -172,11 +181,28 @@ export default function BillingPage() {
               <div>
                 <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">Current plan</p>
                 <p className="text-lg font-bold">{subscription.tier}</p>
+                {subscription.status === 'PAST_DUE' && (
+                  <p className="text-xs text-destructive mt-0.5">
+                    Payment issue — we're retrying automatically. Update your payment method if this continues.
+                  </p>
+                )}
+                {subscription.currentPeriodEnd && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {subscription.cancelAtPeriodEnd ? 'Cancels on ' : 'Renews on '}
+                    {format(new Date(subscription.currentPeriodEnd), 'MMM d, yyyy')}
+                  </p>
+                )}
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setShowDowngrade(true)}>
-              <ArrowDown className="h-4 w-4" /> Downgrade to Free
-            </Button>
+            {subscription.cancelAtPeriodEnd ? (
+              <span className="text-xs font-medium text-muted-foreground px-3 py-1.5 rounded-md border border-border">
+                Cancellation scheduled
+              </span>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setShowDowngrade(true)}>
+                <ArrowDown className="h-4 w-4" /> Cancel Subscription
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
@@ -215,8 +241,13 @@ export default function BillingPage() {
               <Button variant="outline" disabled className="mt-6 h-11 w-full">Current Plan</Button>
             ) : plan.tier === 'FREE' ? (
               currentTier !== 'FREE' ? (
-                <Button variant="outline" className="mt-6 h-11 w-full" onClick={() => setShowDowngrade(true)}>
-                  Downgrade
+                <Button
+                  variant="outline"
+                  className="mt-6 h-11 w-full"
+                  disabled={subscription?.cancelAtPeriodEnd}
+                  onClick={() => setShowDowngrade(true)}
+                >
+                  {subscription?.cancelAtPeriodEnd ? 'Cancellation scheduled' : 'Cancel Subscription'}
                 </Button>
               ) : (
                 <Button variant="ghost" disabled className="mt-6 h-11 w-full">Free Forever</Button>
@@ -255,9 +286,13 @@ export default function BillingPage() {
       <ConfirmDialog
         open={showDowngrade}
         onOpenChange={setShowDowngrade}
-        title="Downgrade to Free?"
-        description="You'll lose access to premium features like AI, advanced analytics, multi-currency support, and unlimited trips. This takes effect immediately."
-        confirmLabel="Downgrade"
+        title="Cancel your Pro subscription?"
+        description={
+          subscription?.currentPeriodEnd
+            ? `You'll keep Pro access until ${format(new Date(subscription.currentPeriodEnd), 'MMM d, yyyy')} — no further payments after that. You can resubscribe anytime.`
+            : "You'll lose access to premium features like AI, advanced analytics, multi-currency support, and unlimited trips."
+        }
+        confirmLabel="Cancel Subscription"
         variant="destructive"
         loading={downgradeMutation.isPending}
         onConfirm={() => downgradeMutation.mutate()}

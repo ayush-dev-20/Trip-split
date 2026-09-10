@@ -1,15 +1,18 @@
 import Razorpay from 'razorpay';
-import type { Orders } from 'razorpay/dist/types/orders';
-import crypto from 'crypto';
+import type { Subscriptions } from 'razorpay/dist/types/subscriptions';
+// `validatePaymentVerification` is only exported from the utils module —
+// unlike `validateWebhookSignature`, it is NOT a static on the Razorpay class.
+import { validatePaymentVerification } from 'razorpay/dist/utils/razorpay-utils';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
 
 /**
- * Razorpay Service
+ * Razorpay Service — Recurring Subscriptions (Standard Checkout)
  *
- * Standard (Web) Checkout integration — used to collect payment for the PRO
- * subscription upgrade. Lazily initialised (same pattern as aiService's
- * Gemini client) so a missing key never crashes boot, only the first call.
+ * Used to collect and renew payment for the PRO subscription via Razorpay's
+ * Subscriptions API (a Plan + recurring mandate), not the one-off Orders API.
+ * Lazily initialised (same pattern as aiService's Gemini client) so a missing
+ * key never crashes boot, only the first call.
  */
 
 let client: Razorpay | null = null;
@@ -27,70 +30,90 @@ function getClient(): Razorpay {
   return client;
 }
 
-export interface RazorpayOrderNotes {
+export interface RazorpaySubscriptionNotes {
   userId: string;
   tier: string;
 }
 
 /**
- * Creates a Razorpay order for the Standard Checkout modal.
- * `amountInPaise` must already be the smallest currency unit (₹1 = 100 paise) —
- * callers should derive it server-side (e.g. from SUBSCRIPTION_PRICES), never
- * from client input, so a tampered request can't buy PRO for less.
+ * Creates a Razorpay Subscription for the Standard Checkout modal.
+ * `total_count: 120` = auto-renew monthly for 10 years before Razorpay
+ * requires a fresh subscription — effectively "indefinite" without literally
+ * being unbounded (the API requires a finite count).
  */
-export async function createOrder(params: {
-  amountInPaise: number;
-  currency: string;
-  receipt: string;
-  notes: RazorpayOrderNotes;
-}): Promise<Orders.RazorpayOrder> {
-  if (params.amountInPaise < 100) {
-    throw new Error('Amount must be at least 100 paise (₹1).');
+export async function createSubscription(notes: RazorpaySubscriptionNotes): Promise<Subscriptions.RazorpaySubscription> {
+  if (!env.RAZORPAY_PLAN_ID) {
+    throw new Error('RAZORPAY_PLAN_ID is not configured.');
   }
 
   try {
-    // The SDK's overloaded (Promise | callback) create() signature resolves
-    // to `Promise<RazorpayOrder> & void` under this project's tsconfig when
-    // called without a callback — cast through `unknown` rather than fight it.
-    const order = (await getClient().orders.create({
-      amount: params.amountInPaise,
-      currency: params.currency.toUpperCase(),
-      receipt: params.receipt,
-      notes: params.notes as unknown as Record<string, string>,
-    })) as unknown as Orders.RazorpayOrder;
-    return order;
+    // Same overload-resolution quirk as the old Orders API — cast through
+    // `unknown` rather than fight the SDK's Promise/callback intersection type.
+    const subscription = (await getClient().subscriptions.create({
+      plan_id: env.RAZORPAY_PLAN_ID,
+      total_count: 120,
+      customer_notify: 1,
+      notes: notes as unknown as Record<string, string>,
+    })) as unknown as Subscriptions.RazorpaySubscription;
+    return subscription;
   } catch (err) {
-    logger.error('RazorpayService', 'Order creation failed', { error: String(err) });
+    logger.error('RazorpayService', 'Subscription creation failed', { error: String(err) });
     throw err;
   }
 }
 
-/** Fetches an order back from Razorpay — used post-verification to read its trusted `notes`. */
-export async function fetchOrder(orderId: string): Promise<Orders.RazorpayOrder> {
-  return (await getClient().orders.fetch(orderId)) as unknown as Orders.RazorpayOrder;
+/** Fetches a subscription back from Razorpay — the trusted source for status/notes/period. */
+export async function fetchSubscription(subscriptionId: string): Promise<Subscriptions.RazorpaySubscription> {
+  return (await getClient().subscriptions.fetch(subscriptionId)) as unknown as Subscriptions.RazorpaySubscription;
 }
 
 /**
- * Verifies the Standard Checkout success signature:
- * HMAC-SHA256(order_id + "|" + payment_id, KEY_SECRET) must equal the signature
- * Razorpay's modal handed back to the client.
+ * Cancels a subscription. `cancelAtCycleEnd: true` lets the current paid
+ * period run out (no further charges, access kept until period end) —
+ * `false` cancels immediately. We always pass `true` from the app's
+ * "Downgrade"/"Cancel" action; the tier itself only flips to FREE once the
+ * `subscription.cancelled` webhook confirms the period has actually ended.
  */
-export function verifySignature(params: {
-  orderId: string;
+export async function cancelSubscription(
+  subscriptionId: string,
+  cancelAtCycleEnd: boolean
+): Promise<Subscriptions.RazorpaySubscription> {
+  return (await getClient().subscriptions.cancel(
+    subscriptionId,
+    cancelAtCycleEnd
+  )) as unknown as Subscriptions.RazorpaySubscription;
+}
+
+/**
+ * Verifies the Standard Checkout success signature for a SUBSCRIPTION
+ * payment. Payload order matters and differs from the one-off Orders flow:
+ * HMAC-SHA256(payment_id + "|" + subscription_id, KEY_SECRET) — this mirrors
+ * the SDK's own `validatePaymentVerification` helper exactly (verified
+ * against its source), used directly here instead of hand-rolling it.
+ */
+export function verifySubscriptionPaymentSignature(params: {
   paymentId: string;
+  subscriptionId: string;
   signature: string;
 }): boolean {
   if (!env.RAZORPAY_KEY_SECRET) {
     throw new Error('RAZORPAY_KEY_SECRET is not configured.');
   }
-  const expected = crypto
-    .createHmac('sha256', env.RAZORPAY_KEY_SECRET)
-    .update(`${params.orderId}|${params.paymentId}`)
-    .digest('hex');
+  return validatePaymentVerification(
+    { payment_id: params.paymentId, subscription_id: params.subscriptionId },
+    params.signature,
+    env.RAZORPAY_KEY_SECRET
+  );
+}
 
-  // Constant-time compare — both buffers must be equal length or timingSafeEqual throws.
-  const expectedBuf = Buffer.from(expected);
-  const actualBuf = Buffer.from(params.signature);
-  if (expectedBuf.length !== actualBuf.length) return false;
-  return crypto.timingSafeEqual(expectedBuf, actualBuf);
+/**
+ * Verifies an incoming webhook's `X-Razorpay-Signature` header against the
+ * raw request body, using the separate webhook secret configured when the
+ * webhook was registered in the Dashboard (not KEY_SECRET).
+ */
+export function verifyWebhookSignature(rawBody: string, signature: string): boolean {
+  if (!env.RAZORPAY_WEBHOOK_SECRET) {
+    throw new Error('RAZORPAY_WEBHOOK_SECRET is not configured.');
+  }
+  return Razorpay.validateWebhookSignature(rawBody, signature, env.RAZORPAY_WEBHOOK_SECRET);
 }

@@ -11,6 +11,34 @@ export interface AuthUser {
   tier: string;
 }
 
+/**
+ * The stored `tier` column already reflects the correct effective tier as of
+ * the last webhook/verify-payment write (see billingController's
+ * `mapRazorpayStatus`). This is a cheap, local-only belt-and-suspenders
+ * check on top of that: if the paid period has clearly passed and the row
+ * hasn't been reconciled yet (a webhook was missed), don't keep granting PRO
+ * purely because the stored tier hasn't caught up. No external Razorpay call
+ * here — that full reconciliation happens lazily in GET /billing/subscription.
+ * Trade-off: right at an exact renewal boundary, a few minutes of webhook
+ * delivery lag could very briefly read as FREE — acceptable vs. the
+ * alternative of indefinite stale access if a webhook is missed entirely.
+ */
+function resolveEffectiveTier(subscription: {
+  tier: string;
+  status: string;
+  currentPeriodEnd: Date | null;
+} | null): string {
+  if (!subscription) return 'FREE';
+  if (
+    subscription.status === 'ACTIVE' &&
+    subscription.currentPeriodEnd &&
+    subscription.currentPeriodEnd.getTime() < Date.now()
+  ) {
+    return 'FREE';
+  }
+  return subscription.tier;
+}
+
 declare global {
   namespace Express {
     interface Request {
@@ -112,7 +140,7 @@ export const authenticate = async (
       id: user.id,
       email: user.email,
       name: user.name,
-      tier: user.subscription?.tier ?? 'FREE',
+      tier: resolveEffectiveTier(user.subscription),
     };
 
     logger.debug('Auth', `[authenticate] OK — req.user = { id: ${user.id}, email: ${user.email} }`);
@@ -144,7 +172,7 @@ export const optionalAuth = async (
           id: user.id,
           email: user.email,
           name: user.name,
-          tier: user.subscription?.tier ?? 'FREE',
+          tier: resolveEffectiveTier(user.subscription),
         };
       }
     }

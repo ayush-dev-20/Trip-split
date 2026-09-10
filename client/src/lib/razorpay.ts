@@ -1,16 +1,17 @@
 // Minimal shape of the `window.Razorpay` constructor injected by checkout.js.
 // Only the fields this app actually uses are typed — the SDK exposes more.
+// Subscription mode: no `amount`/`currency` — those come from the Plan
+// linked to `subscription_id`, and the success handler hands back
+// `razorpay_subscription_id` instead of `razorpay_order_id`.
 export interface RazorpayCheckoutOptions {
   key: string;
-  amount: number;
-  currency: string;
   name: string;
   description?: string;
-  order_id: string;
+  subscription_id: string;
   prefill?: { name?: string; email?: string };
   theme?: { color?: string };
   handler: (response: {
-    razorpay_order_id: string;
+    razorpay_subscription_id: string;
     razorpay_payment_id: string;
     razorpay_signature: string;
   }) => void;

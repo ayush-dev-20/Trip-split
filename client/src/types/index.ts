@@ -282,12 +282,11 @@ export interface Subscription {
   status: SubscriptionStatus;
   currentPeriodStart?: string;
   currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
 }
 
-export interface RazorpayOrder {
-  orderId: string;
-  amount: number;
-  currency: string;
+export interface RazorpaySubscriptionOrder {
+  subscriptionId: string;
 }
 
 // ─── API Types ───────────────────────────────────────────

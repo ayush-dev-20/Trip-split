@@ -393,14 +393,14 @@ export const groupExpenseQuerySchema = z.object({
 // BILLING / RAZORPAY VALIDATORS
 // ──────────────────────────────────
 
-// Only PRO is purchasable today — the price itself is looked up server-side
-// from SUBSCRIPTION_PRICES, never taken from the request body.
-export const createOrderSchema = z.object({
+// Only PRO is purchasable today — the plan itself is looked up server-side
+// from RAZORPAY_PLAN_ID / SUBSCRIPTION_PRICES, never taken from the request body.
+export const createSubscriptionSchema = z.object({
   tier: z.literal('PRO'),
 });
 
 export const verifyPaymentSchema = z.object({
-  razorpay_order_id: z.string().min(1, 'razorpay_order_id is required'),
+  razorpay_subscription_id: z.string().min(1, 'razorpay_subscription_id is required'),
   razorpay_payment_id: z.string().min(1, 'razorpay_payment_id is required'),
   razorpay_signature: z.string().min(1, 'razorpay_signature is required'),
 });
