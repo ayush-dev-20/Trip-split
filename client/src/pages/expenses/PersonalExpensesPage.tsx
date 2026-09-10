@@ -25,6 +25,8 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import EmptyState from '@/components/ui/EmptyState';
 import ExportDialog from '@/components/expenses/ExportDialog';
+import UpgradeDialog from '@/components/ui/UpgradeDialog';
+import ProBadge from '@/components/ui/ProBadge';
 import AIChatPanel from '@/components/ui/AIChatPanel';
 import { aiService } from '@/services/aiService';
 import { personalExpenseService } from '@/services/personalExpenseService';
@@ -1004,6 +1006,8 @@ function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string)
   const [personalPeriod, setPersonalPeriod] = useState<PersonalAnalyticsPeriod>('month');
   const [drilldownCategory, setDrilldownCategory] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
+  const isPro = useAuthStore((s) => (s.user?.tier ?? 'FREE') !== 'FREE');
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
 
   // Custom date range. Both fields must be filled for it to take priority
   // over the week/month/quarter/year pills (server does the same "both required" check).
@@ -1097,11 +1101,17 @@ function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string)
           variant="outline"
           size="sm"
           className="sm:ml-auto shrink-0"
-          onClick={() => setExportOpen(true)}
+          onClick={() => (isPro ? setExportOpen(true) : setUpgradeReason('Exporting your analytics as a PDF'))}
         >
-          <Download className="h-3.5 w-3.5 mr-1.5" /> Export PDF
+          <Download className="h-3.5 w-3.5 mr-1.5" /> Export PDF{!isPro && <ProBadge className="ml-1.5" />}
         </Button>
       </div>
+
+      <UpgradeDialog
+        open={upgradeReason !== null}
+        onOpenChange={(open) => !open && setUpgradeReason(null)}
+        description={upgradeReason ?? ''}
+      />
 
       {/* The report needs a bounded window, so "All time" is not offered and
           the range is always explicit rather than inherited from the pills. */}
@@ -1495,6 +1505,8 @@ export default function PersonalExpensesPage() {
   const search = useDebounce(searchInput.trim(), 300);
 
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
+  const isPro = useAuthStore((s) => (s.user?.tier ?? 'FREE') !== 'FREE');
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
   const deleteMutation    = useDeletePersonalExpense();
 
   const TABS: { id: View; label: string; icon: React.ElementType }[] = [
@@ -1586,10 +1598,11 @@ export default function PersonalExpensesPage() {
               variant="outline"
               size="sm"
               className="shrink-0 px-2.5 sm:px-3"
-              onClick={() => setExportOpen(true)}
+              onClick={() => (isPro ? setExportOpen(true) : setUpgradeReason('Exporting your expenses'))}
             >
               <Download className="h-3.5 w-3.5 sm:mr-1.5" />
               <span className="hidden sm:inline">Export</span>
+              {!isPro && <ProBadge className="ml-1.5" />}
             </Button>
           )}
         </div>
@@ -1687,6 +1700,12 @@ export default function PersonalExpensesPage() {
           if (format === 'csv') personalExpenseService.exportCSV(params);
           else personalExpenseService.exportPDF(params);
         }}
+      />
+
+      <UpgradeDialog
+        open={upgradeReason !== null}
+        onOpenChange={(open) => !open && setUpgradeReason(null)}
+        description={upgradeReason ?? ''}
       />
     </div>
   );

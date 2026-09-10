@@ -101,6 +101,16 @@ export const createExpense = asyncHandler(async (req: Request, res: Response) =>
   const isMember = trip.members.some((m: any) => m.userId === userId);
   if (!isMember) throw AppError.forbidden('You are not a member of this trip');
 
+  // Multi-currency is PRO-only: FREE users can only log expenses in the
+  // trip's own budget currency.
+  const tier = req.user!.tier;
+  if (tier === 'FREE' && (currency || 'USD') !== trip.budgetCurrency) {
+    throw AppError.forbidden(
+      `Using a different currency is a PRO feature. This trip's currency is ${trip.budgetCurrency}.`,
+      'UPGRADE_REQUIRED'
+    );
+  }
+
   // Convert currency to trip base currency
   const { convertedAmount, exchangeRate } = await convertCurrency(
     amount,
@@ -353,6 +363,21 @@ export const updateExpense = asyncHandler(async (req: Request, res: Response) =>
   };
 
   const { splits: newSplits, ...updateData } = req.body;
+
+  // Multi-currency is PRO-only. Only gate when currency is actually being
+  // changed to something other than the trip's own currency — editing other
+  // fields on an expense whose currency already differs (e.g. set while on
+  // PRO, later downgraded) is still allowed.
+  if (
+    req.user!.tier === 'FREE' &&
+    updateData.currency !== undefined &&
+    updateData.currency !== expense.trip!.budgetCurrency
+  ) {
+    throw AppError.forbidden(
+      `Using a different currency is a PRO feature. This trip's currency is ${expense.trip!.budgetCurrency}.`,
+      'UPGRADE_REQUIRED'
+    );
+  }
 
   if (updateData.amount || updateData.currency) {
     const { convertedAmount, exchangeRate } = await convertCurrency(

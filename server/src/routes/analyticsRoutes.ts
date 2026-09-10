@@ -15,7 +15,7 @@ router.get('/year-in-review', requireFeature('yearInReview'), analytics.yearInRe
 router.get('/category-trends', requireFeature('advancedAnalytics'), analytics.categoryTrends);
 router.get('/personal', analytics.getPersonalAnalytics);
 // Registered before nothing conflicting, but kept adjacent to its JSON sibling
-router.get('/personal/export/pdf', analytics.exportPersonalAnalyticsPDF);
+router.get('/personal/export/pdf', requireFeature('pdfCsvExport'), analytics.exportPersonalAnalyticsPDF);
 router.get('/group/:groupId', analytics.getGroupAnalytics);
 
 export default router;

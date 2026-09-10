@@ -13,6 +13,18 @@ export const createPersonalExpense = asyncHandler(async (req: Request, res: Resp
   const { title, description, amount, currency, category, date, isRecurring, recurringPattern } = req.body;
 
   const baseCurrency = currency || 'USD';
+
+  // Multi-currency is PRO-only: FREE users can only log expenses in their
+  // own preferred currency.
+  if (req.user!.tier === 'FREE') {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { preferredCurrency: true } });
+    if (baseCurrency !== user.preferredCurrency) {
+      throw AppError.forbidden(
+        `Using a different currency is a PRO feature. Your preferred currency is ${user.preferredCurrency}.`,
+        'UPGRADE_REQUIRED'
+      );
+    }
+  }
   const { convertedAmount: baseAmount, exchangeRate } = await convertCurrency(amount, baseCurrency, baseCurrency);
 
   const expense = await prisma.expense.create({
@@ -158,6 +170,18 @@ export const updatePersonalExpense = asyncHandler(async (req: Request, res: Resp
   }
 
   const { title, description, amount, currency, category, date, isRecurring, recurringPattern } = req.body;
+
+  // Multi-currency is PRO-only. Only gate when currency is actually being
+  // changed to something other than the user's preferred currency.
+  if (req.user!.tier === 'FREE' && currency !== undefined) {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { preferredCurrency: true } });
+    if (currency !== user.preferredCurrency) {
+      throw AppError.forbidden(
+        `Using a different currency is a PRO feature. Your preferred currency is ${user.preferredCurrency}.`,
+        'UPGRADE_REQUIRED'
+      );
+    }
+  }
 
   let baseAmount = existing.baseAmount;
   let exchangeRate = existing.exchangeRate;

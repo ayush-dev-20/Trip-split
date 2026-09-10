@@ -22,6 +22,7 @@ import {
 } from '@/hooks/usePersonalExpenses';
 import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
+import UpgradeDialog from '@/components/ui/UpgradeDialog';
 import { cn } from '@/lib/utils';
 import type { ExpenseCategory, RecurringFrequency } from '@/types';
 
@@ -49,6 +50,8 @@ export default function CreatePersonalExpensePage() {
   const isEditMode = !!editId;
 
   const preferredCurrency = useAuthStore((s) => s.user?.preferredCurrency ?? 'USD');
+  const isPro = useAuthStore((s) => (s.user?.tier ?? 'FREE') !== 'FREE');
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
 
   const [form, setForm] = useState<Form>({
@@ -188,8 +191,13 @@ export default function CreatePersonalExpensePage() {
         await createMutation.mutateAsync(payload);
       }
       navigate('/expenses');
-    } catch {
-      setError(`Failed to ${isEditMode ? 'update' : 'save'} expense. Please try again.`);
+    } catch (err) {
+      const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
+      if (code === 'UPGRADE_REQUIRED') {
+        setUpgradeReason('Using a different currency');
+      } else {
+        setError(`Failed to ${isEditMode ? 'update' : 'save'} expense. Please try again.`);
+      }
     }
   };
 
@@ -326,7 +334,16 @@ export default function CreatePersonalExpensePage() {
                 id="currency"
                 className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
                 value={form.currency}
-                onChange={(e) => set('currency', e.target.value)}
+                onChange={(e) => {
+                  // Multi-currency is PRO-only — FREE users can only log
+                  // expenses in their own preferred currency. Pre-emptive
+                  // check (mirrors the server's guard in personalExpenseController.ts).
+                  if (!isPro && e.target.value !== preferredCurrency) {
+                    setUpgradeReason('Using a different currency');
+                    return;
+                  }
+                  set('currency', e.target.value);
+                }}
               >
                 {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -438,6 +455,12 @@ export default function CreatePersonalExpensePage() {
           </div>
         </form>
       )}
+
+      <UpgradeDialog
+        open={upgradeReason !== null}
+        onOpenChange={(open) => !open && setUpgradeReason(null)}
+        description={upgradeReason ?? ''}
+      />
     </div>
   );
 }

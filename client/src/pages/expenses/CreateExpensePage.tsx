@@ -7,7 +7,7 @@ import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
 import UserAvatar from '@/components/ui/UserAvatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, Receipt, Lock, X } from 'lucide-react';
+import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, Receipt, X } from 'lucide-react';
 import { aiService } from '@/services/aiService';
 import type { ExpenseCategory, SplitType, ItemizedReceipt, ExpenseItem } from '@/types';
 import { Button } from '@/components/ui/button';
@@ -18,10 +18,8 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import { Badge } from '@/components/ui/badge';
+import UpgradeDialog from '@/components/ui/UpgradeDialog';
+import ProBadge from '@/components/ui/ProBadge';
 import ItemizedSplitEditor from '@/components/expenses/ItemizedSplitEditor';
 import { CATEGORY_STYLES, ALL_CATEGORIES } from '@/lib/categoryStyle';
 import { useCategorySuggestion } from '@/hooks/useCategorySuggestion';
@@ -72,7 +70,10 @@ export default function CreateExpensePage() {
   const [itemizedReceipt, setItemizedReceipt] = useState<ItemizedReceipt | null>(null);
   const [itemizedResult, setItemizedResult] = useState<{ perUser: { userId: string; owedAmount: number }[]; items: ExpenseItem[] } | null>(null);
   const [itemizeLoading, setItemizeLoading] = useState(false);
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
+  // Shared paywall dialog — one instance for every PRO-gated action on this
+  // page (itemized receipts, non-default currency). `upgradeReason` doubles
+  // as both "is it open" and "what feature to name in the copy."
+  const [upgradeReason, setUpgradeReason] = useState<string | null>(null);
   const tier = currentUser?.tier ?? 'FREE';
   const isPro = tier !== 'FREE';
 
@@ -232,7 +233,7 @@ export default function CreateExpensePage() {
 
   const handleItemizedScan = async (file: File) => {
     if (!isPro) {
-      setShowUpgradeDialog(true);
+      setUpgradeReason('Splitting a receipt by individual items');
       return;
     }
     setItemizeLoading(true);
@@ -251,11 +252,21 @@ export default function CreateExpensePage() {
     } catch (err) {
       const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
       if (code === 'UPGRADE_REQUIRED') {
-        setShowUpgradeDialog(true);
+        setUpgradeReason('Splitting a receipt by individual items');
       }
       // Otherwise silently fail—user can still fill manually
     } finally {
       setItemizeLoading(false);
+    }
+  };
+
+  // Reactive fallback alongside the pre-emptive currency-select guard above —
+  // covers edge cases like a stale `isPro` value (e.g. this tab open across
+  // a downgrade) where the request reaches the server's own guard instead.
+  const handleMutationError = (err: unknown) => {
+    const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
+    if (code === 'UPGRADE_REQUIRED') {
+      setUpgradeReason('Using a different currency');
     }
   };
 
@@ -292,12 +303,12 @@ export default function CreateExpensePage() {
       if (isEditMode) {
         updateExpense.mutate(
           { expenseId: editId!, ...payload },
-          { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+          { onSuccess: () => navigate(`/trips/${tripId}/expenses`), onError: handleMutationError }
         );
       } else {
         createExpense.mutate(
           { ...payload, tripId: tripId!, paidById: payerId },
-          { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+          { onSuccess: () => navigate(`/trips/${tripId}/expenses`), onError: handleMutationError }
         );
       }
       return;
@@ -338,12 +349,12 @@ export default function CreateExpensePage() {
     if (isEditMode) {
       updateExpense.mutate(
         { expenseId: editId!, ...payload },
-        { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+        { onSuccess: () => navigate(`/trips/${tripId}/expenses`), onError: handleMutationError }
       );
     } else {
       createExpense.mutate(
         { ...payload, tripId: tripId!, paidById: payerId },
-        { onSuccess: () => navigate(`/trips/${tripId}/expenses`) }
+        { onSuccess: () => navigate(`/trips/${tripId}/expenses`), onError: handleMutationError }
       );
     }
   };
@@ -443,11 +454,9 @@ export default function CreateExpensePage() {
                 </label>
               </Button>
             ) : (
-              <Button variant="ghost" size="sm" className="h-7" onClick={() => setShowUpgradeDialog(true)}>
+              <Button variant="ghost" size="sm" className="h-7" onClick={() => setUpgradeReason('Splitting a receipt by individual items')}>
                 <Receipt className="h-3.5 w-3.5" /> Split by items
-                <Badge variant="outline" className="ml-1 text-[9px] px-1 py-0 h-4 border-primary/30 text-primary">
-                  <Lock className="h-2.5 w-2.5 mr-0.5" /> PRO
-                </Badge>
+                <ProBadge className="ml-1" />
               </Button>
             )}
           </div>
@@ -524,7 +533,20 @@ export default function CreateExpensePage() {
               </div>
               <div className="space-y-2 col-span-1">
                 <Label>Currency</Label>
-                <Select value={form.currency} onValueChange={(v) => update('currency', v)} disabled={!!itemizedReceipt}>
+                <Select
+                  value={form.currency}
+                  onValueChange={(v) => {
+                    // Multi-currency is PRO-only — FREE users can only log
+                    // expenses in the trip's own currency. Pre-emptive check
+                    // (mirrors the server's own guard in expenseController.ts).
+                    if (!isPro && v !== trip.budgetCurrency) {
+                      setUpgradeReason('Using a different currency');
+                      return;
+                    }
+                    update('currency', v);
+                  }}
+                  disabled={!!itemizedReceipt}
+                >
                   <SelectTrigger className="h-10">
                     <SelectValue />
                   </SelectTrigger>
@@ -868,24 +890,11 @@ export default function CreateExpensePage() {
         </div>
       </form>
 
-      <Dialog open={showUpgradeDialog} onOpenChange={setShowUpgradeDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" /> Upgrade to PRO
-            </DialogTitle>
-            <DialogDescription>
-              Splitting a receipt by individual items is a PRO feature. Upgrade your plan to scan a receipt and assign each item to the people who had it.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUpgradeDialog(false)}>Not now</Button>
-            <Button asChild>
-              <Link to="/settings/billing">Upgrade</Link>
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <UpgradeDialog
+        open={upgradeReason !== null}
+        onOpenChange={(open) => !open && setUpgradeReason(null)}
+        description={upgradeReason ?? ''}
+      />
     </div>
   );
 }
