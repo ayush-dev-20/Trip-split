@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { billingService } from '@/services/billingService';
+import { loadRazorpayScript } from '@/lib/razorpay';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import PageHeader from '@/components/ui/PageHeader';
@@ -75,8 +76,8 @@ export default function BillingPage() {
     queryFn: billingService.getSubscription,
   });
 
-  const upgradeMutation = useMutation({
-    mutationFn: billingService.upgrade,
+  const verifyPaymentMutation = useMutation({
+    mutationFn: billingService.verifyPayment,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['subscription'] });
       if (user) setUser({ ...user, tier: data.tier });
@@ -84,10 +85,58 @@ export default function BillingPage() {
       setUpgradingTier(null);
     },
     onError: () => {
-      toast.error('Failed to upgrade plan');
+      toast.error('Payment verification failed. If you were charged, please contact support.');
       setUpgradingTier(null);
     },
   });
+
+  /**
+   * Full Razorpay Standard Checkout flow: create a server-authoritative order
+   * (price is never taken from the client), open the modal, then verify the
+   * signature server-side before the tier is actually upgraded.
+   */
+  const handleUpgrade = async (tier: 'PRO') => {
+    setUpgradingTier(tier);
+    try {
+      await loadRazorpayScript();
+      const order = await billingService.createOrder(tier);
+
+      if (!window.Razorpay) {
+        throw new Error('Razorpay checkout failed to load');
+      }
+
+      const razorpay = new window.Razorpay({
+        key: import.meta.env.VITE_RAZORPAY_KEY_ID as string,
+        amount: order.amount,
+        currency: order.currency,
+        name: 'TripSplit',
+        description: `Upgrade to ${tier}`,
+        order_id: order.orderId,
+        prefill: { name: user?.name, email: user?.email },
+        handler: (response) => {
+          verifyPaymentMutation.mutate({
+            razorpay_order_id: response.razorpay_order_id,
+            razorpay_payment_id: response.razorpay_payment_id,
+            razorpay_signature: response.razorpay_signature,
+          });
+        },
+        modal: {
+          // Fires when the user closes the modal without paying — not an error.
+          ondismiss: () => setUpgradingTier(null),
+        },
+      });
+
+      razorpay.on('payment.failed', (response) => {
+        toast.error(response.error?.description || 'Payment failed. Please try again.');
+        setUpgradingTier(null);
+      });
+
+      razorpay.open();
+    } catch {
+      toast.error('Unable to start checkout. Please try again.');
+      setUpgradingTier(null);
+    }
+  };
 
   const downgradeMutation = useMutation({
     mutationFn: billingService.downgrade,
@@ -175,15 +224,12 @@ export default function BillingPage() {
             ) : (
               <Button
                 variant={plan.highlighted ? 'default' : 'outline'}
-                onClick={() => {
-                  setUpgradingTier(plan.tier as 'PRO');
-                  upgradeMutation.mutate(plan.tier as 'PRO');
-                }}
-                disabled={upgradeMutation.isPending}
+                onClick={() => handleUpgrade(plan.tier as 'PRO')}
+                disabled={upgradingTier !== null}
                 className="mt-6 h-11 w-full"
               >
-                {upgradingTier === plan.tier && upgradeMutation.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                {upgradingTier === plan.tier && upgradeMutation.isPending ? 'Upgrading…' : `Upgrade to ${plan.name}`}
+                {upgradingTier === plan.tier && <Loader2 className="h-4 w-4 animate-spin" />}
+                {upgradingTier === plan.tier ? 'Upgrading…' : `Upgrade to ${plan.name}`}
               </Button>
             )}
 

@@ -284,6 +284,12 @@ export interface Subscription {
   currentPeriodEnd?: string;
 }
 
+export interface RazorpayOrder {
+  orderId: string;
+  amount: number;
+  currency: string;
+}
+
 // ─── API Types ───────────────────────────────────────────
 export interface ApiResponse<T> {
   status: 'success';

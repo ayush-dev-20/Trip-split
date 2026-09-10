@@ -1,9 +1,16 @@
 import api from './api';
-import type { Subscription } from '@/types';
+import type { Subscription, RazorpayOrder } from '@/types';
 
 export const billingService = {
-  upgrade: (tier: 'PRO') =>
-    api.post<{ success: boolean; data: Subscription }>('/billing/upgrade', { tier }).then((r) => r.data.data),
+  createOrder: (tier: 'PRO') =>
+    api.post<{ success: boolean; data: RazorpayOrder }>('/billing/create-order', { tier }).then((r) => r.data.data),
+
+  verifyPayment: (payload: {
+    razorpay_order_id: string;
+    razorpay_payment_id: string;
+    razorpay_signature: string;
+  }) =>
+    api.post<{ success: boolean; data: Subscription }>('/billing/verify-payment', payload).then((r) => r.data.data),
 
   downgrade: () =>
     api.post<{ success: boolean; data: Subscription }>('/billing/downgrade').then((r) => r.data.data),

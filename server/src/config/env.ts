@@ -51,4 +51,8 @@ export const env = {
   // Currency
   EXCHANGE_RATE_API_KEY: process.env.EXCHANGE_RATE_API_KEY || '',
   EXCHANGE_RATE_API_URL: process.env.EXCHANGE_RATE_API_URL || 'https://api.exchangerate-api.com/v4',
+
+  // Razorpay (PRO upgrade payments)
+  RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID || '',
+  RAZORPAY_KEY_SECRET: process.env.RAZORPAY_KEY_SECRET || '',
 };
