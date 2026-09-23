@@ -5,12 +5,15 @@ import { ArrowLeft, Luggage, Sparkles, Loader2, Plus, Trash2, X, Pencil } from '
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import EmptyState from '@/components/ui/EmptyState';
+import Modal from '@/components/ui/Modal';
 import { useTrip } from '@/hooks/useTrips';
 import {
   usePackingItems, useGeneratePackingItems, useAddPackingItem,
@@ -34,6 +37,8 @@ export default function PackingListPage() {
   const [newItem, setNewItem] = useState('');
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [promptDialogOpen, setPromptDialogOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
 
   // Group items by category, preserving each category's own sort order
   const grouped = useMemo(() => {
@@ -49,9 +54,17 @@ export default function PackingListPage() {
   const packedCount = items.filter((i) => i.isPacked).length;
   const progress = items.length > 0 ? Math.round((packedCount / items.length) * 100) : 0;
 
-  const handleGenerate = () => {
+  const openGenerateDialog = () => {
     setGenerateError(null);
-    generate.mutate(undefined, {
+    setAiPrompt('');
+    setPromptDialogOpen(true);
+  };
+
+  const handleGenerate = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPromptDialogOpen(false);
+    setGenerateError(null);
+    generate.mutate(aiPrompt.trim() || undefined, {
       onError: (err) => {
         const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
         setGenerateError(
@@ -143,7 +156,7 @@ export default function PackingListPage() {
           title="No packing list yet"
           description="Generate one from this trip's destination and dates, or add items yourself below."
           action={
-            <Button onClick={handleGenerate} disabled={generate.isPending}>
+            <Button onClick={openGenerateDialog} disabled={generate.isPending}>
               {generate.isPending
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
                 : <><Sparkles className="h-4 w-4" /> Generate with AI</>}
@@ -185,7 +198,7 @@ export default function PackingListPage() {
             </form>
 
             {items.length > 0 && (
-              <Button variant="outline" size="sm" onClick={handleGenerate} disabled={generate.isPending} className="w-full">
+              <Button variant="outline" size="sm" onClick={openGenerateDialog} disabled={generate.isPending} className="w-full">
                 {generate.isPending
                   ? <><Loader2 className="h-3.5 w-3.5 animate-spin" /> Generating…</>
                   : <><Sparkles className="h-3.5 w-3.5" /> Suggest more with AI</>}
@@ -194,6 +207,36 @@ export default function PackingListPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* AI generate — optional steer prompt */}
+      <Modal open={promptDialogOpen} onClose={() => setPromptDialogOpen(false)} title="Generate Packing List">
+        <form onSubmit={handleGenerate} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="ai-packing-prompt">Anything specific to plan around?</Label>
+            <Textarea
+              id="ai-packing-prompt"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="e.g. business trip with a client dinner, traveling with a toddler, hiking two of the days…"
+              className="min-h-[90px] resize-none"
+              autoFocus
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave this blank for a general list based on your destination, dates, and traveler count.
+            </p>
+          </div>
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="outline" onClick={() => setPromptDialogOpen(false)} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={generate.isPending} className="flex-1">
+              {generate.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Generating…</>
+                : <><Sparkles className="h-4 w-4" /> Generate</>}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <AlertDialog open={confirmClearOpen} onOpenChange={setConfirmClearOpen}>
         <AlertDialogContent>

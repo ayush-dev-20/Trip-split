@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import { useTrips, useDeleteTrip } from '@/hooks/useTrips';
+import { useTrips, useDeleteTrip, useJoinTrip } from '@/hooks/useTrips';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import EmptyState from '@/components/ui/EmptyState';
 import PageHeader from '@/components/ui/PageHeader';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
-import { Map, Plus, MapPin, Users, Calendar, Search, MoreVertical, Pencil, Trash2, Receipt } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
+import { Map, Plus, MapPin, Users, Calendar, Search, MoreVertical, Pencil, Trash2, Receipt, UserPlus, Loader2 } from 'lucide-react';
 import type { TripStatus } from '@/types';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -41,10 +43,13 @@ export default function TripsPage() {
   const [statusFilter, setStatusFilter] = useState<TripStatus | 'ALL'>('ALL');
   const [search, setSearch] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [showJoin, setShowJoin] = useState(false);
+  const [joinCode, setJoinCode] = useState('');
   const { data, isLoading } = useTrips(
     statusFilter === 'ALL' ? undefined : { status: statusFilter }
   );
   const deleteTrip = useDeleteTrip();
+  const joinTrip = useJoinTrip();
 
   if (isLoading) return <PageLoader />;
 
@@ -53,17 +58,34 @@ export default function TripsPage() {
     t.destination?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const handleJoin = (e: React.FormEvent) => {
+    e.preventDefault();
+    joinTrip.mutate(joinCode, {
+      onSuccess: (trip) => { setShowJoin(false); setJoinCode(''); navigate(`/trips/${trip.id}`); },
+    });
+  };
+
+  const joinErrorMessage = joinTrip.isError
+    ? (joinTrip.error as { response?: { data?: { error?: { message?: string } } } })
+        ?.response?.data?.error?.message ?? 'Invalid or expired invite code.'
+    : null;
+
   return (
     <div className="space-y-6">
       <PageHeader
         title="Trips"
         description="Manage and track all your travel expenses"
         actions={
-          <Button asChild className="hidden sm:inline-flex">
-            <Link to="/trips/new">
-              <Plus className="h-4 w-4" /> New Trip
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setShowJoin(true)}>
+              <UserPlus className="h-4 w-4" /> Join
+            </Button>
+            <Button asChild className="hidden sm:inline-flex">
+              <Link to="/trips/new">
+                <Plus className="h-4 w-4" /> New Trip
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -97,14 +119,19 @@ export default function TripsPage() {
         <EmptyState
           icon={<Map className="h-7 w-7" />}
           title={search ? 'No matches found' : 'No trips yet'}
-          description={search ? 'Try a different search term.' : 'Create your first trip to start tracking expenses with friends.'}
+          description={search ? 'Try a different search term.' : 'Create a trip, or join one a friend already started with their invite code.'}
           action={
             !search && (
-              <Button asChild>
-                <Link to="/trips/new">
-                  <Plus className="h-4 w-4" /> Create Your First Trip
-                </Link>
-              </Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setShowJoin(true)}>
+                  <UserPlus className="h-4 w-4" /> Join with Code
+                </Button>
+                <Button asChild>
+                  <Link to="/trips/new">
+                    <Plus className="h-4 w-4" /> Create Your First Trip
+                  </Link>
+                </Button>
+              </div>
             )
           }
         />
@@ -247,6 +274,36 @@ export default function TripsPage() {
           <Plus className="h-6 w-6" />
         </Link>
       </Button>
+
+      {/* Join Trip */}
+      <Modal open={showJoin} onClose={() => { setShowJoin(false); joinTrip.reset(); }} title="Join Trip">
+        <form onSubmit={handleJoin} className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="join-trip-code">Invite Code <span className="text-destructive">*</span></Label>
+            <Input
+              id="join-trip-code"
+              value={joinCode}
+              onChange={(e) => setJoinCode(e.target.value)}
+              placeholder="Enter invite code"
+              required
+              autoFocus
+              className="h-10 font-mono"
+            />
+          </div>
+          {joinErrorMessage && (
+            <p className="text-sm text-destructive">{joinErrorMessage}</p>
+          )}
+          <div className="flex gap-3 pt-1">
+            <Button type="button" variant="outline" onClick={() => { setShowJoin(false); joinTrip.reset(); }} className="flex-1">
+              Cancel
+            </Button>
+            <Button type="submit" disabled={joinTrip.isPending || !joinCode.trim()} className="flex-1">
+              {joinTrip.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {joinTrip.isPending ? 'Joining…' : 'Join Trip'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
 
       <ConfirmDialog
         open={!!deleteId}

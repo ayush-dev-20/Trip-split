@@ -593,14 +593,20 @@ export async function generatePackingList(params: {
   days: number;
   startDate?: string;
   travelers: number;
+  /** Optional free-text steer from the traveler, e.g. "business trip, need formal wear". */
+  prompt?: string;
 }): Promise<PackingListResponse> {
   const seasonHint = params.startDate
     ? `The trip starts on ${params.startDate} — infer the likely season/weather at the destination on that date and tailor clothing/gear accordingly.`
     : `No start date was given — suggest weather-neutral items and note destination-specific gear that applies year-round.`;
 
+  const userHint = params.prompt
+    ? `\nThe traveler gave these additional instructions — follow them closely and let them steer which items are included/excluded: "${params.prompt}"`
+    : '';
+
   return askJSON(
     `You are a travel packing expert. Create a packing list for a ${params.days}-day trip to ${params.destination} for ${params.travelers} traveler(s).
-${seasonHint}
+${seasonHint}${userHint}
 
 Return a JSON object: { "categories": [ { "name": string, "items": string[] } ] }
 Include AT LEAST these categories, in this order: "Clothing", "Documents", "Electronics", "Toiletries", "Destination-Specific".

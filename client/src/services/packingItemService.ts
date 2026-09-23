@@ -14,8 +14,9 @@ export const packingItemService = {
     api.post<ApiResponse<PackingItem>>(`/trips/${tripId}/packing-items`, data).then((r) => r.data.data),
 
   /** Generates an AI list from the trip's own data. Existing items are preserved. */
-  generate: (tripId: string) =>
-    api.post<ApiResponse<PackingItem[]>>(`/trips/${tripId}/packing-items/generate`).then((r) => r.data.data),
+  generate: (tripId: string, prompt?: string) =>
+    api.post<ApiResponse<PackingItem[]>>(`/trips/${tripId}/packing-items/generate`, { prompt })
+      .then((r) => r.data.data),
 
   update: (tripId: string, id: string, data: Partial<Pick<PackingItem, 'name' | 'category' | 'isPacked' | 'sortOrder'>>) =>
     api.patch<ApiResponse<PackingItem>>(`/trips/${tripId}/packing-items/${id}`, data).then((r) => r.data.data),

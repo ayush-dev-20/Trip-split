@@ -15,7 +15,7 @@ export function usePackingItems(tripId: string) {
 export function useGeneratePackingItems(tripId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => packingItemService.generate(tripId),
+    mutationFn: (prompt?: string) => packingItemService.generate(tripId, prompt),
     onSuccess: (items) => {
       qc.setQueryData<PackingItem[]>(key(tripId), items);
     },

@@ -73,11 +73,14 @@ export const generatePackingItems = asyncHandler(async (req: Request, res: Respo
     (trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24)
   ));
 
+  const { prompt } = req.body as { prompt?: string };
+
   const result = await aiService.generatePackingList({
     destination: trip.destination,
     days,
     startDate: trip.startDate.toISOString().split('T')[0],
     travelers: trip.members.length,
+    prompt: prompt?.trim() || undefined,
   });
 
   const existing = await prisma.packingItem.findMany({

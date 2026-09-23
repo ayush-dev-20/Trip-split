@@ -290,6 +290,10 @@ export const updatePackingItemSchema = z.object({
   sortOrder: z.number().int().min(0).optional(),
 });
 
+export const generatePackingItemsSchema = z.object({
+  prompt: z.string().max(500).optional(),
+});
+
 // ──────────────────────────────────
 // NOTE VALIDATORS
 // ──────────────────────────────────
