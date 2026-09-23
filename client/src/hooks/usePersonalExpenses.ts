@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { personalExpenseService } from '@/services/personalExpenseService';
-import type { CreatePersonalExpensePayload, PersonalAnalyticsPeriod } from '@/types';
-import { getNextDueDate } from '@/lib/recurring';
+import type { CreatePersonalExpensePayload, PersonalAnalyticsPeriod, PersonalExpense } from '@/types';
+import { getNextDueDate, getMostRecentPastDueDate, getFulfilledDueDate, isOverdue as checkIsOverdue } from '@/lib/recurring';
 import type { RecurringFrequency } from '@/types';
 import { aiService } from '@/services/aiService';
 import { useAnomalyStore } from '@/stores/anomalyStore';
@@ -46,15 +46,54 @@ export function useRecurringExpenses() {
     queryKey: ['personal-expenses', 'recurring'],
     queryFn: async () => {
       const expenses = await personalExpenseService.getRecurring();
-      return expenses.map((e) => ({
-        ...e,
-        nextDueDate: getNextDueDate(
-          e.date,
-          (e.recurringPattern ?? 'monthly') as RecurringFrequency,
-        ),
-      }));
+      return expenses.map((e) => {
+        const pattern = (e.recurringPattern ?? 'monthly') as RecurringFrequency;
+        const overdue = checkIsOverdue(e.date, pattern);
+        return {
+          ...e,
+          nextDueDate: getNextDueDate(e.date, pattern),
+          overdueSince: overdue ? getMostRecentPastDueDate(e.date, pattern) : null,
+          isOverdue: overdue,
+        };
+      });
     },
     staleTime: 1000 * 60 * 5, // 5 minutes
+  });
+}
+
+/**
+ * Logs a recurring template as paid: creates the actual expense (dated today)
+ * and advances the template's own anchor `date` to the due date just
+ * fulfilled, so the recurring day-of-month/weekday is preserved and the row
+ * stops showing as due/overdue immediately. No schema changes — reuses the
+ * existing update endpoint to "remember" the last paid cycle.
+ */
+export function useLogRecurringExpense() {
+  const qc = useQueryClient();
+  const createMutation = useCreatePersonalExpense();
+
+  return useMutation({
+    mutationFn: async (template: PersonalExpense) => {
+      const pattern = (template.recurringPattern ?? 'monthly') as RecurringFrequency;
+      const fulfilledDate = getFulfilledDueDate(template.date, pattern);
+
+      // Advance the anchor first so the invalidation triggered by the create
+      // below refetches the recurring list with the template already caught up.
+      await personalExpenseService.update(template.id, { date: fulfilledDate.toISOString() });
+
+      return createMutation.mutateAsync({
+        title: template.title,
+        amount: template.amount,
+        currency: template.currency,
+        category: template.category,
+        date: new Date().toISOString(),
+        description: template.description ?? undefined,
+        isRecurring: false,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['personal-expenses'] });
+    },
   });
 }
 

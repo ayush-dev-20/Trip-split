@@ -5,6 +5,7 @@ import {
   Plus, ChevronLeft, ChevronRight, Wallet, CalendarDays, List,
   History, Trash2, Loader2, Pencil, MessageCircle, Search, X, RepeatIcon, Download,
   BarChart3, DollarSign, PieChart as PieChartIcon, ArrowUpRight, ArrowDownRight, NotebookPen, Sparkles,
+  AlertCircle,
 } from 'lucide-react';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import {
@@ -36,7 +37,7 @@ import {
   usePersonalExpensesCalendar,
   useDeletePersonalExpense,
   useRecurringExpenses,
-  useCreatePersonalExpense,
+  useLogRecurringExpense,
   usePersonalBudgetStatus,
   usePersonalAnalytics,
 } from '@/hooks/usePersonalExpenses';
@@ -355,7 +356,7 @@ function TodayView({
   return (
     <div className="space-y-4">
       <AnimatePresence>
-        {showBanner && <DueTodayBanner onDismiss={onDismissBanner} />}
+        {showBanner && <RecurringDueBanner onDismiss={onDismissBanner} />}
       </AnimatePresence>
 
       <AnimatePresence>
@@ -795,44 +796,31 @@ function CalendarView({
   );
 }
 
-// ── Due Today Banner ──────────────────────────────────────────────────────────
+// ── Recurring Due Banner (due today + overdue) ──────────────────────────────
 
-function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
-  const { data: recurring = [] } = useRecurringExpenses();
-  const createMutation           = useCreatePersonalExpense();
-  const [logging, setLogging]    = useState(false);
-  const [logError, setLogError]  = useState(false);
+function RecurringDueBanner({ onDismiss }: { onDismiss: () => void }) {
+  const { data: recurring = [] }  = useRecurringExpenses();
+  const logMutation               = useLogRecurringExpense();
+  const [logging, setLogging]     = useState(false);
+  const [logError, setLogError]   = useState(false);
 
+  const overdue = useMemo(() => recurring.filter((e) => e.isOverdue), [recurring]);
   const dueToday = useMemo(
     () =>
       recurring.filter((e) =>
-        isDueToday(e.date, (e.recurringPattern ?? 'monthly') as RecurringFrequency),
+        !e.isOverdue && isDueToday(e.date, (e.recurringPattern ?? 'monthly') as RecurringFrequency),
       ),
     [recurring],
   );
+  const needsLogging = useMemo(() => [...overdue, ...dueToday], [overdue, dueToday]);
 
-  if (dueToday.length === 0) return null;
+  if (needsLogging.length === 0) return null;
 
   const handleLogAll = async () => {
     setLogging(true);
     setLogError(false);
     try {
-      // Full ISO datetime — the server's date validator (z.string().datetime())
-      // rejects a bare "YYYY-MM-DD" string, which is what caused "Log all" to 400.
-      const today = new Date().toISOString();
-      await Promise.all(
-        dueToday.map((e) =>
-          createMutation.mutateAsync({
-            title:       e.title,
-            amount:      e.amount,
-            currency:    e.currency,
-            category:    e.category,
-            date:        today,
-            description: e.description ?? undefined,
-            isRecurring: false,
-          }),
-        ),
-      );
+      await Promise.all(needsLogging.map((e) => logMutation.mutateAsync(e)));
       onDismiss();
     } catch {
       setLogError(true);
@@ -841,25 +829,30 @@ function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
     }
   };
 
+  const isOverdueBanner = overdue.length > 0;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -8 }}
     >
-      <Card className="border-primary/40 bg-primary/5">
+      <Card className={cn('border-primary/40 bg-primary/5', isOverdueBanner && 'border-destructive/40 bg-destructive/5')}>
         <CardContent className="p-3 flex items-center gap-3">
-          <RepeatIcon className="h-4 w-4 text-primary shrink-0" />
+          {isOverdueBanner
+            ? <AlertCircle className="h-4 w-4 text-destructive shrink-0" />
+            : <RepeatIcon className="h-4 w-4 text-primary shrink-0" />}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold leading-tight">
-              {dueToday.length} recurring {dueToday.length === 1 ? 'expense' : 'expenses'} due today
+              {needsLogging.length} recurring {needsLogging.length === 1 ? 'expense needs' : 'expenses need'} logging
+              {isOverdueBanner && ` · ${overdue.length} overdue`}
             </p>
             <p className="text-xs text-muted-foreground truncate mt-0.5">
-              {dueToday.map((e) => `${e.title} (${formatMoney(e.amount, e.currency)})`).join(' · ')}
+              {needsLogging.map((e) => `${e.title} (${formatMoney(e.amount, e.currency)})`).join(' · ')}
             </p>
           </div>
           {logError ? (
-            <p className="text-xs text-destructive shrink-0">Some items failed — check History and log remaining manually.</p>
+            <p className="text-xs text-destructive shrink-0">Some items failed — log them individually from the Recurring tab.</p>
           ) : (
             <Button size="sm" className="shrink-0" onClick={handleLogAll} disabled={logging}>
               {logging ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
@@ -876,6 +869,84 @@ function DueTodayBanner({ onDismiss }: { onDismiss: () => void }) {
 }
 
 // ── Recurring Tab ─────────────────────────────────────────────────────────────
+
+type RecurringListItem = ReturnType<typeof useRecurringExpenses>['data'] extends (infer T)[] | undefined ? T : never;
+
+function RecurringExpenseRow({
+  expense,
+  onExpenseClick,
+  onDelete,
+}: {
+  expense: RecurringListItem;
+  onExpenseClick: (id: string) => void;
+  onDelete: (id: string) => void;
+}) {
+  const cat  = getCategoryStyle(expense.category);
+  const Icon = cat.icon;
+  const logMutation = useLogRecurringExpense();
+  const [logFailed, setLogFailed] = useState(false);
+
+  const dueToday = !expense.isOverdue
+    && isDueToday(expense.date, (expense.recurringPattern ?? 'monthly') as RecurringFrequency);
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      className="flex items-center gap-3 px-4 py-3 group hover:bg-accent/40 cursor-pointer transition-colors"
+      onClick={() => onExpenseClick(expense.id)}
+    >
+      <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', cat.bg)}>
+        <Icon className={cn('h-5 w-5', cat.fg)} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium truncate">{expense.title}</p>
+        <p className={cn(
+          'text-xs mt-0.5',
+          expense.isOverdue ? 'text-destructive font-medium'
+            : dueToday ? 'text-primary font-medium'
+            : 'text-muted-foreground',
+        )}>
+          {expense.isOverdue && expense.overdueSince
+            ? `Overdue since ${format(expense.overdueSince, 'MMM d')}`
+            : dueToday
+            ? 'Due today'
+            : `Next: ${format(expense.nextDueDate, 'MMM d')}`}
+          {logFailed && <span className="text-destructive"> · Failed, try again</span>}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <p className="text-sm font-semibold tabular-nums">
+          {formatMoney(expense.amount, expense.currency)}
+        </p>
+        <Button
+          size="sm"
+          variant={expense.isOverdue || dueToday ? 'default' : 'outline'}
+          className="h-7 px-2.5 text-xs"
+          onClick={(ev) => {
+            ev.stopPropagation();
+            setLogFailed(false);
+            logMutation.mutate(expense, { onError: () => setLogFailed(true) });
+          }}
+          disabled={logMutation.isPending}
+        >
+          {logMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Log'}
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity h-7 w-7"
+          onClick={(ev) => { ev.stopPropagation(); onDelete(expense.id); }}
+          aria-label="Delete"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+        </Button>
+      </div>
+    </motion.div>
+  );
+}
 
 function RecurringTab({
   currency,
@@ -949,45 +1020,14 @@ function RecurringTab({
           <Card>
             <ul className="divide-y">
               <AnimatePresence initial={false}>
-              {items.map((e) => {
-                const cat  = getCategoryStyle(e.category);
-                const Icon = cat.icon;
-                return (
-                  <motion.div
-                    key={e.id}
-                    layout
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -4 }}
-                    className="flex items-center gap-3 px-4 py-3 group hover:bg-accent/40 cursor-pointer transition-colors"
-                    onClick={() => onExpenseClick(e.id)}
-                  >
-                    <div className={cn('flex items-center justify-center h-10 w-10 rounded-xl shrink-0', cat.bg)}>
-                      <Icon className={cn('h-5 w-5', cat.fg)} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{e.title}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        Next: {format(e.nextDueDate, 'MMM d')}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <p className="text-sm font-semibold tabular-nums">
-                        {formatMoney(e.amount, e.currency)}
-                      </p>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity h-7 w-7"
-                        onClick={(ev) => { ev.stopPropagation(); deleteMutation.mutate(e.id); }}
-                        aria-label="Delete"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </motion.div>
-                );
-              })}
+              {items.map((e) => (
+                <RecurringExpenseRow
+                  key={e.id}
+                  expense={e}
+                  onExpenseClick={onExpenseClick}
+                  onDelete={(id) => deleteMutation.mutate(id)}
+                />
+              ))}
               </AnimatePresence>
             </ul>
           </Card>
