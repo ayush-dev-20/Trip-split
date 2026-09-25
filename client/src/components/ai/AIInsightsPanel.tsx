@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Sparkles, Wallet, TrendingUp, Lightbulb, Loader2 } from 'lucide-react';
+import { Sparkles, Wallet, TrendingUp, Lightbulb, Loader2, RefreshCw } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { formatMoney } from '@/lib/format';
@@ -42,34 +42,40 @@ export default function AIInsightsPanel({ scope, tripId, groupId, currency = 'US
   const showBudgetStatus = scope !== 'group';
   const showPredictedCost = scope !== 'group';
 
+  // Each insight is its own request, so each can fail — and be retried — independently.
+  const runBudgetStatus = () =>
+    aiService.insightsBudgetStatus(scope as 'trip' | 'personal', tripId)
+      .then((data) => setBudgetStatus({ data, error: null }))
+      .catch((err) => setBudgetStatus({ data: null, error: toErrorKind(err) }));
+
+  const runPredictedCost = () =>
+    aiService.insightsPredictedCost(scope as 'trip' | 'personal', tripId)
+      .then((data) => setPredictedCost({ data, error: null }))
+      .catch((err) => setPredictedCost({ data: null, error: toErrorKind(err) }));
+
+  const runInsights = () =>
+    aiService.insightsSpending(scope, { tripId, groupId })
+      .then((data) => setInsights({ data, error: null }))
+      .catch((err) => setInsights({ data: null, error: toErrorKind(err) }));
+
   const generate = async () => {
     setLoading(true);
     setHasRun(true);
 
     const jobs: Promise<void>[] = [];
-
-    if (showBudgetStatus) {
-      jobs.push(
-        aiService.insightsBudgetStatus(scope as 'trip' | 'personal', tripId)
-          .then((data) => setBudgetStatus({ data, error: null }))
-          .catch((err) => setBudgetStatus({ data: null, error: toErrorKind(err) }))
-      );
-    }
-    if (showPredictedCost) {
-      jobs.push(
-        aiService.insightsPredictedCost(scope as 'trip' | 'personal', tripId)
-          .then((data) => setPredictedCost({ data, error: null }))
-          .catch((err) => setPredictedCost({ data: null, error: toErrorKind(err) }))
-      );
-    }
-    jobs.push(
-      aiService.insightsSpending(scope, { tripId, groupId })
-        .then((data) => setInsights({ data, error: null }))
-        .catch((err) => setInsights({ data: null, error: toErrorKind(err) }))
-    );
+    if (showBudgetStatus) jobs.push(runBudgetStatus());
+    if (showPredictedCost) jobs.push(runPredictedCost());
+    jobs.push(runInsights());
 
     await Promise.allSettled(jobs);
     setLoading(false);
+  };
+
+  const [retrying, setRetrying] = useState<'budget' | 'predicted' | 'insights' | null>(null);
+  const retry = async (which: 'budget' | 'predicted' | 'insights', run: () => Promise<void>) => {
+    setRetrying(which);
+    await run();
+    setRetrying(null);
   };
 
   return (
@@ -93,7 +99,13 @@ export default function AIInsightsPanel({ scope, tripId, groupId, currency = 'US
         )}
 
         {showBudgetStatus && (budgetStatus.data || budgetStatus.error) && (
-          <InsightCard icon={Wallet} title="Budget Status" result={budgetStatus}>
+          <InsightCard
+            icon={Wallet}
+            title="Budget Status"
+            result={budgetStatus}
+            onRetry={() => retry('budget', runBudgetStatus)}
+            retrying={retrying === 'budget'}
+          >
             {budgetStatus.data && (
               <>
                 <p className={cn(
@@ -115,7 +127,13 @@ export default function AIInsightsPanel({ scope, tripId, groupId, currency = 'US
         )}
 
         {showPredictedCost && (predictedCost.data || predictedCost.error) && (
-          <InsightCard icon={TrendingUp} title="Predicted Total Cost" result={predictedCost}>
+          <InsightCard
+            icon={TrendingUp}
+            title="Predicted Total Cost"
+            result={predictedCost}
+            onRetry={() => retry('predicted', runPredictedCost)}
+            retrying={retrying === 'predicted'}
+          >
             {predictedCost.data && (
               <>
                 <p className="text-lg font-bold tabular-nums">{formatMoney(predictedCost.data.predictedTotal, currency)}</p>
@@ -126,7 +144,13 @@ export default function AIInsightsPanel({ scope, tripId, groupId, currency = 'US
         )}
 
         {(insights.data || insights.error) && (
-          <InsightCard icon={Lightbulb} title="Insights" result={insights}>
+          <InsightCard
+            icon={Lightbulb}
+            title="Insights"
+            result={insights}
+            onRetry={() => retry('insights', runInsights)}
+            retrying={retrying === 'insights'}
+          >
             {insights.data && <p className="text-sm whitespace-pre-wrap leading-relaxed">{insights.data}</p>}
           </InsightCard>
         )}
@@ -135,10 +159,13 @@ export default function AIInsightsPanel({ scope, tripId, groupId, currency = 'US
   );
 }
 
-function InsightCard<T>({ icon: Icon, title, result, children }: {
+function InsightCard<T>({ icon: Icon, title, result, onRetry, retrying = false, children }: {
   icon: React.ElementType;
   title: string;
   result: CardResult<T>;
+  /** Re-runs just this card's request. Only offered for failures a retry can fix. */
+  onRetry?: () => void;
+  retrying?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -156,7 +183,15 @@ function InsightCard<T>({ icon: Icon, title, result, children }: {
         <p className="text-xs text-muted-foreground">No budget set yet — add one to see this.</p>
       )}
       {result.error === 'failed' && (
-        <p className="text-xs text-muted-foreground">Unable to generate right now.</p>
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-destructive">Unable to generate right now.</p>
+          {onRetry && (
+            <Button type="button" variant="outline" size="sm" className="h-7 shrink-0 text-xs" onClick={onRetry} disabled={retrying}>
+              {retrying ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              Try again
+            </Button>
+          )}
+        </div>
       )}
       {children}
     </div>

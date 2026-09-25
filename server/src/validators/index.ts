@@ -294,6 +294,26 @@ export const generatePackingItemsSchema = z.object({
   prompt: z.string().max(500).optional(),
 });
 
+// AI-written description for one checkpoint (add/edit dialog). `prompt` is the
+// traveler's optional instruction; the rest is the dialog's current field values.
+export const checkpointDescriptionSchema = z.object({
+  tripId: z.string().min(1, 'tripId is required'),
+  title: z.string().trim().min(1, 'title is required').max(200),
+  category: z.string().max(50).optional(),
+  day: z.number().int().min(1).optional(),
+  currentDescription: z.string().max(1000).optional(),
+  prompt: z.string().max(500).optional(),
+});
+
+// AI itinerary + checkpoint generation for an existing trip. `prompt` is the
+// traveler's optional free-text steer, same cap as the packing-list prompt.
+export const planForTripSchema = z.object({
+  tripId: z.string().min(1, 'tripId is required'),
+  prompt: z.string().max(500).optional(),
+  // Retry hook: 'checkpoints' skips the itinerary and re-runs only the checkpoint step.
+  only: z.literal('checkpoints').optional(),
+});
+
 // ──────────────────────────────────
 // NOTE VALIDATORS
 // ──────────────────────────────────

@@ -9,6 +9,8 @@ import UserAvatar from '@/components/ui/UserAvatar';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Sparkles, Camera, AlertCircle, Mic, MicOff, Loader2, Receipt, X } from 'lucide-react';
 import { aiService } from '@/services/aiService';
+import { useAIFailure } from '@/hooks/useAIFailure';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
 import type { ExpenseCategory, SplitType, ItemizedReceipt, ExpenseItem } from '@/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -63,6 +65,11 @@ export default function CreateExpensePage() {
 
   const [nlpInput, setNlpInput] = useState('');
   const [nlpLoading, setNlpLoading] = useState(false);
+  const [scanLoading, setScanLoading] = useState(false);
+  // Last failed AI action + the files needed to re-run scans (a file input can't be re-read on retry).
+  const { failure: aiFailure, fail: failAI, clear: clearAIFailure } = useAIFailure<'nlp' | 'scan' | 'itemized'>();
+  const lastScanFile = useRef<File | null>(null);
+  const lastItemizedFile = useRef<File | null>(null);
   const [isListening, setIsListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
@@ -193,6 +200,7 @@ export default function CreateExpensePage() {
     // don't let AI quick entry silently overwrite them (see handleReceiptScan).
     if (!nlpInput.trim() || itemizedReceipt) return;
     setNlpLoading(true);
+    clearAIFailure();
     try {
       const result = await aiService.parseNaturalLanguage(nlpInput);
       setForm((prev) => ({
@@ -203,8 +211,8 @@ export default function CreateExpensePage() {
         category: result.category || prev.category,
         splitType: result.splitType || prev.splitType,
       }));
-    } catch {
-      // Silently fail—user can still fill manually
+    } catch (err) {
+      failAI('nlp', err, "Couldn't read that entry. Please try again, or fill the form in manually.");
     } finally {
       setNlpLoading(false);
     }
@@ -215,6 +223,9 @@ export default function CreateExpensePage() {
     // a plain (non-itemized) rescan must not silently overwrite them and desync
     // itemizedResult.perUser from form.amount.
     if (itemizedReceipt) return;
+    lastScanFile.current = file;
+    setScanLoading(true);
+    clearAIFailure();
     try {
       const result = await aiService.scanReceipt(file);
       setForm((prev) => ({
@@ -226,8 +237,10 @@ export default function CreateExpensePage() {
         date: result.date || prev.date,
         description: result.description || prev.description,
       }));
-    } catch {
-      // Silently fail
+    } catch (err) {
+      failAI('scan', err, "Couldn't read that receipt. Please try again, or fill the form in manually.");
+    } finally {
+      setScanLoading(false);
     }
   };
 
@@ -236,7 +249,9 @@ export default function CreateExpensePage() {
       setUpgradeReason('Splitting a receipt by individual items');
       return;
     }
+    lastItemizedFile.current = file;
     setItemizeLoading(true);
+    clearAIFailure();
     try {
       const receipt = await aiService.scanReceiptItems(file);
       setItemizedReceipt(receipt);
@@ -253,11 +268,19 @@ export default function CreateExpensePage() {
       const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
       if (code === 'UPGRADE_REQUIRED') {
         setUpgradeReason('Splitting a receipt by individual items');
+      } else {
+        failAI('itemized', err, "Couldn't read the items on that receipt. Please try again, or fill the form in manually.");
       }
-      // Otherwise silently fail—user can still fill manually
     } finally {
       setItemizeLoading(false);
     }
+  };
+
+  // Re-runs whichever AI action failed, using the current input at click time.
+  const retryAI = () => {
+    if (aiFailure?.kind === 'nlp') handleNLP();
+    else if (aiFailure?.kind === 'scan' && lastScanFile.current) handleReceiptScan(lastScanFile.current);
+    else if (aiFailure?.kind === 'itemized' && lastItemizedFile.current) handleItemizedScan(lastItemizedFile.current);
   };
 
   // Reactive fallback alongside the pre-emptive currency-select guard above —
@@ -429,12 +452,12 @@ export default function CreateExpensePage() {
           <div className="flex items-center gap-1 flex-wrap">
             <Button variant="ghost" size="sm" asChild className={cn('cursor-pointer h-7 -ml-1', itemizedReceipt && 'opacity-40 pointer-events-none')} disabled={!!itemizedReceipt}>
               <label>
-                <Camera className="h-3.5 w-3.5" /> Scan Receipt
+                {scanLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />} Scan Receipt
                 <input
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  disabled={!!itemizedReceipt}
+                  disabled={!!itemizedReceipt || scanLoading}
                   onChange={(e) => e.target.files?.[0] && handleReceiptScan(e.target.files[0])}
                 />
               </label>
@@ -460,6 +483,14 @@ export default function CreateExpensePage() {
               </Button>
             )}
           </div>
+          {aiFailure && (
+            <AIErrorNotice
+              message={aiFailure.message}
+              onRetry={aiFailure.retryable ? retryAI : undefined}
+              retrying={nlpLoading || scanLoading || itemizeLoading}
+              onDismiss={clearAIFailure}
+            />
+          )}
         </CardContent>
       </Card>
       )}

@@ -1,5 +1,6 @@
 import api from './api';
 import { getClerkToken } from '@/lib/clerkHelper';
+import { AIStreamError } from '@/lib/aiError';
 import type { ReceiptScanResult, ItemizedReceipt, TripPlan, TripPlanWithCheckpoints, NLPExpenseResult, SuggestedCheckpoint, AIBudgetStatus, AIPredictedCost, RootCauseExplanation } from '@/types';
 
 /**
@@ -18,12 +19,21 @@ async function* streamSSE(url: string, body: unknown): AsyncGenerator<{ type: st
   });
 
   if (!response.ok || !response.body) {
-    throw new Error(`Stream request failed: ${response.status}`);
+    // Non-2xx responses are normal JSON errors (validation, plan gate, ...) — surface their message/code.
+    let code: string | undefined;
+    let message: string | undefined;
+    try {
+      const json = await response.json();
+      code = json?.error?.code;
+      message = json?.error?.message;
+    } catch { /* body wasn't JSON */ }
+    throw new AIStreamError(message ?? `Stream request failed: ${response.status}`, { code, status: response.status });
   }
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let sawDone = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -34,10 +44,26 @@ async function* streamSSE(url: string, body: unknown): AsyncGenerator<{ type: st
     for (const part of parts) {
       const line = part.trim();
       if (line.startsWith('data: ')) {
-        try { yield JSON.parse(line.slice(6)); } catch { /* skip malformed */ }
+        let event: { type: string; [key: string]: unknown };
+        try { event = JSON.parse(line.slice(6)); } catch { continue; /* skip malformed */ }
+
+        // The server reports a failed generation as a distinct `error` event —
+        // never as ordinary text — so callers can show an error and offer a retry.
+        if (event.type === 'error') {
+          throw new AIStreamError(
+            (event.message as string) || 'AI is unavailable right now. Please try again.',
+            { code: 'AI_GENERATION_FAILED', status: 503, stage: event.stage as string | undefined }
+          );
+        }
+        if (event.type === 'done') sawDone = true;
+        yield event;
       }
     }
   }
+
+  // The connection closed before the server said it was finished (dropped
+  // network, proxy timeout): treat the partial output as a failure, not a result.
+  if (!sawDone) throw new AIStreamError('The connection was interrupted before the AI finished.', { status: 503 });
 }
 
 export const aiService = {
@@ -79,6 +105,18 @@ export const aiService = {
   planCheckpoints: (params: { destination: string; days: number; budget: number; currency: string; travelers: number }) =>
     api.post<{ success: boolean; data: SuggestedCheckpoint[] }>('/ai/plan-checkpoints', params).then((r) => r.data.data),
 
+  /** Writes/revises one checkpoint's description, steered by the traveler's instruction. */
+  checkpointDescription: (params: {
+    tripId: string;
+    title: string;
+    category?: string;
+    day?: number;
+    currentDescription?: string;
+    prompt?: string;
+  }) =>
+    api.post<{ success: boolean; data: { description: string } }>('/ai/checkpoint-description', params)
+      .then((r) => r.data.data.description),
+
   tripPlanner: (destination: string, days: number, budget: number, currency: string, travelers: number) =>
     api.post<{ success: boolean; data: TripPlan }>('/ai/trip-planner', { destination, days, budget, currency, travelers }).then((r) => r.data.data),
 
@@ -106,13 +144,19 @@ export const aiService = {
    * `onItineraryComplete` fires once itinerary streaming ends, before checkpoint generation starts.
    */
   planForTripStream: async (
-    tripId: string,
+    params: {
+      tripId: string;
+      /** Optional free-text steer, e.g. "focus on street food, keep day 3 free". */
+      prompt?: string;
+      /** Retry hook: re-run only the checkpoint step, keeping the itinerary already on screen. */
+      only?: 'checkpoints';
+    },
     onChunk: (text: string) => void,
     onCheckpoints: (data: SuggestedCheckpoint[]) => void,
     onDone?: () => void,
     onItineraryComplete?: () => void
   ): Promise<void> => {
-    for await (const event of streamSSE('/api/ai/trip-planner-for-trip/stream', { tripId })) {
+    for await (const event of streamSSE('/api/ai/trip-planner-for-trip/stream', params)) {
       if (event.type === 'chunk') onChunk(event.text as string);
       else if (event.type === 'itinerary_complete') onItineraryComplete?.();
       else if (event.type === 'checkpoints') onCheckpoints(event.data as SuggestedCheckpoint[]);

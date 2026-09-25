@@ -27,6 +27,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import EmptyState from '@/components/ui/EmptyState';
 import ExportDialog from '@/components/expenses/ExportDialog';
 import UpgradeDialog from '@/components/ui/UpgradeDialog';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
+import { getAIError } from '@/lib/aiError';
 import ProBadge from '@/components/ui/ProBadge';
 import AIChatPanel from '@/components/ui/AIChatPanel';
 import { aiService } from '@/services/aiService';
@@ -1068,11 +1070,11 @@ function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string)
 
   const [rootCause, setRootCause] = useState<string | null>(null);
   const [rootCauseLoading, setRootCauseLoading] = useState(false);
-  const [rootCauseError, setRootCauseError] = useState(false);
+  const [rootCauseError, setRootCauseError] = useState<{ message: string; retryable: boolean } | null>(null);
 
   const handleExplain = async () => {
     setRootCauseLoading(true);
-    setRootCauseError(false);
+    setRootCauseError(null);
     try {
       const explanation = await aiService.insightsRootCause(
         personalCustomActive
@@ -1080,8 +1082,9 @@ function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string)
           : { period: personalPeriod }
       );
       setRootCause(explanation);
-    } catch {
-      setRootCauseError(true);
+    } catch (err) {
+      const info = getAIError(err, "Couldn't generate an explanation right now. Please try again.");
+      setRootCauseError({ message: info.message, retryable: info.retryable });
     } finally {
       setRootCauseLoading(false);
     }
@@ -1227,7 +1230,12 @@ function PersonalAnalyticsTab({ onExpenseClick }: { onExpenseClick: (id: string)
               </Button>
             </div>
             {rootCauseError && (
-              <p className="text-xs text-muted-foreground mt-2">Unable to generate an explanation right now.</p>
+              <AIErrorNotice
+                className="mt-2"
+                message={rootCauseError.message}
+                onRetry={rootCauseError.retryable ? handleExplain : undefined}
+                retrying={rootCauseLoading}
+              />
             )}
             {rootCause && !rootCauseError && (
               <p className="text-sm mt-2 leading-relaxed">{rootCause}</p>

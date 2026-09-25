@@ -55,6 +55,8 @@ import { cn } from '@/lib/utils';
 import { useNotes, useCreateNote, useUpdateNote, useTogglePin, useDeleteNote } from '@/hooks/useNotes';
 import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
+import { getAIError, type AIErrorInfo } from '@/lib/aiError';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
 import type { Note, NoteScope } from '@/types';
 
 const lowlight = createLowlight();
@@ -234,6 +236,7 @@ function NoteEditor({
   const [showAskAI, setShowAskAI] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiError, setAiError] = useState<(AIErrorInfo & { prompt: string }) | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { mutate: updateNote } = useUpdateNote(scope);
   // Ref so the handlePaste closure can access the editor after creation
@@ -252,6 +255,7 @@ function NoteEditor({
   async function handleAskAI(prompt: string) {
     if (!editor || aiGenerating) return;
     setAiGenerating(true);
+    setAiError(null);
 
     // Captured once, before this feature adds anything — everything from this
     // position onward (for the rest of this function) belongs to this
@@ -267,6 +271,7 @@ function NoteEditor({
 
     let accumulated = '';
     let hadError = false;
+    let errorInfo: AIErrorInfo | null = null;
 
     try {
       await aiService.noteGenerateStream(scope, prompt, (text) => {
@@ -290,8 +295,9 @@ function NoteEditor({
           : editor.view.state.tr.delete(placeholderFrom, placeholderTo);
         editor.view.dispatch(tr);
       });
-    } catch {
+    } catch (err) {
       hadError = true;
+      errorInfo = getAIError(err, "Couldn't generate that. Please try again.");
     }
 
     const currentEnd = editor.state.doc.content.size;
@@ -339,6 +345,7 @@ function NoteEditor({
     }
 
     setAiGenerating(false);
+    if (errorInfo) setAiError({ ...errorInfo, prompt });
     scheduleAutoSave({ content: editor.getHTML() });
   }
 
@@ -476,6 +483,17 @@ function NoteEditor({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {aiError && (
+        <div className="px-4 pt-2">
+          <AIErrorNotice
+            message={aiError.message}
+            onRetry={aiError.retryable ? () => handleAskAI(aiError.prompt) : undefined}
+            retrying={aiGenerating}
+            onDismiss={() => setAiError(null)}
+          />
+        </div>
+      )}
 
       {/* Toolbar */}
       <EditorToolbar editor={editor} />

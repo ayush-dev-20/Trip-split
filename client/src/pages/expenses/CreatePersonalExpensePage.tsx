@@ -22,6 +22,8 @@ import {
 } from '@/hooks/usePersonalExpenses';
 import { useAuthStore } from '@/stores/authStore';
 import { aiService } from '@/services/aiService';
+import { useAIFailure } from '@/hooks/useAIFailure';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
 import UpgradeDialog from '@/components/ui/UpgradeDialog';
 import { cn } from '@/lib/utils';
 import type { ExpenseCategory, RecurringFrequency } from '@/types';
@@ -100,6 +102,9 @@ export default function CreatePersonalExpensePage() {
   // Receipt scan
   const receiptInputRef = useRef<HTMLInputElement>(null);
   const [scanLoading, setScanLoading] = useState(false);
+  // Last failed AI action, and the receipt file so a scan can be re-run on retry.
+  const { failure: aiFailure, fail: failAI, clear: clearAIFailure } = useAIFailure<'nlp' | 'scan'>();
+  const lastScanFile = useRef<File | null>(null);
 
   const set = (field: keyof Form, value: string | boolean) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -130,6 +135,7 @@ export default function CreatePersonalExpensePage() {
   const handleNLP = async () => {
     if (!nlpInput.trim()) return;
     setNlpLoading(true);
+    clearAIFailure();
     try {
       const result = await aiService.parseNaturalLanguage(nlpInput);
       setForm((prev) => ({
@@ -139,7 +145,9 @@ export default function CreatePersonalExpensePage() {
         currency: result.currency || prev.currency,
         category: (result.category as ExpenseCategory) || prev.category,
       }));
-    } catch { /* silent */ } finally {
+    } catch (err) {
+      failAI('nlp', err, "Couldn't read that entry. Please try again, or fill the form in manually.");
+    } finally {
       setNlpLoading(false);
     }
   };
@@ -147,7 +155,9 @@ export default function CreatePersonalExpensePage() {
   // ── Receipt scan ─────────────────────────────────────────────────────────
 
   const handleReceiptScan = async (file: File) => {
+    lastScanFile.current = file;
     setScanLoading(true);
+    clearAIFailure();
     try {
       const result = await aiService.scanReceipt(file);
       setForm((prev) => ({
@@ -159,9 +169,17 @@ export default function CreatePersonalExpensePage() {
         date:        result.date?.split('T')[0] || prev.date,
         description: result.description || prev.description,
       }));
-    } catch { /* silent */ } finally {
+    } catch (err) {
+      failAI('scan', err, "Couldn't read that receipt. Please try again, or fill the form in manually.");
+    } finally {
       setScanLoading(false);
     }
+  };
+
+  // Re-runs whichever AI action failed, using the current input at click time.
+  const retryAI = () => {
+    if (aiFailure?.kind === 'nlp') handleNLP();
+    else if (aiFailure?.kind === 'scan' && lastScanFile.current) handleReceiptScan(lastScanFile.current);
   };
 
   // ── Submit ───────────────────────────────────────────────────────────────
@@ -278,6 +296,15 @@ export default function CreatePersonalExpensePage() {
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleReceiptScan(f); }}
               />
             </div>
+            {aiFailure && (
+              <AIErrorNotice
+                className="mt-3"
+                message={aiFailure.message}
+                onRetry={aiFailure.retryable ? retryAI : undefined}
+                retrying={nlpLoading || scanLoading}
+                onDismiss={clearAIFailure}
+              />
+            )}
           </CardContent>
         </Card>
       )}

@@ -3,6 +3,13 @@ import path from 'path';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
+// Ordered list of Gemini models to try — see services/geminiModels.ts. Accepts the
+// old single GEMINI_MODEL too, so existing setups keep working unchanged.
+const geminiModels = (process.env.GEMINI_MODELS || process.env.GEMINI_MODEL || 'gemini-2.5-flash')
+  .split(',')
+  .map((m) => m.trim())
+  .filter((m, i, all) => m && all.indexOf(m) === i);
+
 export const env = {
   // Server
   PORT: parseInt(process.env.PORT || '3000', 10),
@@ -35,7 +42,10 @@ export const env = {
 
   // Gemini AI
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
+  /** Models in priority order; the first is preferred, the rest are fallbacks. */
+  GEMINI_MODELS: geminiModels,
+  /** The preferred model (first of GEMINI_MODELS). */
+  GEMINI_MODEL: geminiModels[0],
 
   // Email
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',

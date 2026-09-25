@@ -5,6 +5,8 @@ import { motion } from 'framer-motion';
 import { Brain, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
+import { getAIError } from '@/lib/aiError';
 
 interface ChatMsg {
   role: 'user' | 'assistant';
@@ -28,20 +30,29 @@ export default function AIChatPanel({
   const [chatInput, setChatInput] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // The message whose reply failed, so "Try again" can re-send exactly that question.
+  const [failed, setFailed] = useState<{ message: string; error: string; retryable: boolean } | null>(null);
+
   const chatMutation = useMutation({
     mutationFn,
     onSuccess: (reply) => {
+      setFailed(null);
       setChatMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
+    },
+    onError: (err, message) => {
+      const info = getAIError(err, "Couldn't get a reply. Please try again.");
+      setFailed({ message, error: info.message, retryable: info.retryable });
     },
   });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [chatMessages, chatMutation.isPending]);
+  }, [chatMessages, chatMutation.isPending, failed]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!chatInput.trim() || chatMutation.isPending) return;
+    setFailed(null);
     setChatMessages((prev) => [...prev, { role: 'user', content: chatInput }]);
     chatMutation.mutate(chatInput);
     setChatInput('');
@@ -104,6 +115,23 @@ export default function AIChatPanel({
               </span>
               Thinking...
             </div>
+          </div>
+        )}
+        {failed && !chatMutation.isPending && (
+          <div className="flex justify-start">
+            <AIErrorNotice
+              className="max-w-[85%]"
+              message={failed.error}
+              onRetry={
+                failed.retryable
+                  ? () => {
+                      const message = failed.message;
+                      setFailed(null);
+                      chatMutation.mutate(message);
+                    }
+                  : undefined
+              }
+            />
           </div>
         )}
         <div ref={messagesEndRef} />

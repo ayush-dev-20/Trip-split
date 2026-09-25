@@ -10,6 +10,22 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 
 export const uploadReceiptMiddleware = upload.single('receipt');
 
 /**
+ * Ends an SSE stream with a distinct `error` event. A failed generation must NOT
+ * be written into the stream as ordinary `chunk` text — the client couldn't tell
+ * it from a real result (and the Notes editor would paste it into the note).
+ * `stage` lets multi-step streams say which step failed so only that step retries.
+ */
+function endStreamWithError(res: Response, stage?: 'itinerary' | 'checkpoints', err?: unknown) {
+  // Deliberate AI errors (e.g. "at capacity, try again in ~40 seconds") carry a message worth showing.
+  const message =
+    err instanceof AppError && err.code === 'AI_RATE_LIMITED'
+      ? err.message
+      : 'AI is unavailable right now. Please try again.';
+  res.write(`data: ${JSON.stringify({ type: 'error', message, stage })}\n\n`);
+  res.end();
+}
+
+/**
  * POST /api/ai/scan-receipt
  * Accepts multipart form data with a "receipt" file.
  */
@@ -422,37 +438,109 @@ export const planCheckpoints = asyncHandler(async (req: Request, res: Response) 
   res.json({ success: true, data: result });
 });
 
+type TripPlanContext = {
+  destination: string;
+  days: number;
+  budget: number;
+  currency: string;
+  travelers: number;
+} & aiService.TripContextExtras;
+
+/**
+ * Gathers everything we know about a trip — dates, budget and spend so far,
+ * group size, description, and checkpoints already planned — plus the
+ * traveler's own request, so the AI prompts can be tailored to this trip
+ * rather than just "N days in <destination>".
+ */
+async function loadTripPlanContext(tripId: string, userId: string, prompt?: string): Promise<TripPlanContext> {
+  const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+  if (!member) throw AppError.forbidden('You are not a member of this trip');
+
+  const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { members: true } });
+  if (!trip) throw AppError.notFound('Trip not found');
+  if (!trip.destination) throw AppError.badRequest('Trip has no destination set');
+
+  const [existingCheckpoints, spent] = await Promise.all([
+    prisma.checkpoint.findMany({
+      where: { tripId },
+      select: { title: true, day: true, category: true },
+      orderBy: [{ day: 'asc' }, { sortOrder: 'asc' }],
+      take: 60,
+    }),
+    prisma.expense.aggregate({ where: { tripId }, _sum: { baseAmount: true } }),
+  ]);
+
+  const isoDay = (d: Date) => d.toISOString().split('T')[0];
+
+  return {
+    destination: trip.destination,
+    days: Math.max(1, Math.ceil((trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24))),
+    budget: trip.budget ?? 1000,
+    currency: trip.budgetCurrency,
+    travelers: trip.members.length,
+    tripName: trip.name,
+    tripDescription: trip.description?.trim() || undefined,
+    startDate: isoDay(trip.startDate),
+    endDate: isoDay(trip.endDate),
+    spentSoFar: spent._sum.baseAmount ?? 0,
+    existingCheckpoints,
+    userPrompt: typeof prompt === 'string' && prompt.trim() ? prompt.trim() : undefined,
+  };
+}
+
+/**
+ * POST /api/ai/checkpoint-description
+ * Writes or revises the description of a single checkpoint, using the trip's
+ * own details for context and the traveler's optional instruction as a steer.
+ */
+export const checkpointDescription = asyncHandler(async (req: Request, res: Response) => {
+  const { tripId, title, category, day, currentDescription, prompt } = req.body;
+  const userId = req.user!.id as string;
+
+  const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
+  if (!member) throw AppError.forbidden('You are not a member of this trip');
+
+  const trip = await prisma.trip.findUnique({
+    where: { id: tripId },
+    select: { name: true, destination: true, startDate: true, endDate: true },
+  });
+  if (!trip) throw AppError.notFound('Trip not found');
+
+  const isoDay = (d: Date) => d.toISOString().split('T')[0];
+
+  const description = await aiService.generateCheckpointDescription({
+    title,
+    category: category || undefined,
+    day,
+    currentDescription: currentDescription?.trim() || undefined,
+    destination: trip.destination ?? undefined,
+    tripName: trip.name,
+    startDate: isoDay(trip.startDate),
+    endDate: isoDay(trip.endDate),
+    userPrompt: typeof prompt === 'string' && prompt.trim() ? prompt.trim() : undefined,
+  });
+
+  if (!description) throw AppError.internal('Could not generate a description right now. Please try again.');
+
+  res.json({ success: true, data: { description } });
+});
+
 /**
  * POST /api/ai/trip-planner-for-trip
  * Generates itinerary + checkpoint suggestions from an existing trip's data.
  */
 export const tripPlannerForTrip = asyncHandler(async (req: Request, res: Response) => {
-  const { tripId } = req.body;
+  const { tripId, prompt } = req.body;
   const userId = req.user!.id as string;
 
   if (!tripId) throw AppError.badRequest('tripId is required');
 
-  // Verify membership
-  const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
-  if (!member) throw AppError.forbidden('You are not a member of this trip');
-
-  // Load trip data
-  const trip = await prisma.trip.findUnique({
-    where: { id: tripId },
-    include: { members: true },
-  });
-  if (!trip) throw AppError.notFound('Trip not found');
-  if (!trip.destination) throw AppError.badRequest('Trip has no destination set');
-
-  const days = Math.max(1, Math.ceil((trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24)));
-  const budget = trip.budget ?? 1000;
-  const currency = trip.budgetCurrency;
-  const travelers = trip.members.length;
+  const ctx = await loadTripPlanContext(tripId, userId, prompt);
 
   // Generate itinerary + checkpoint suggestions in parallel
   const [itineraryResult, suggestedCheckpoints] = await Promise.all([
-    aiService.generateTripPlan({ destination: trip.destination, days, budget, currency, travelers }),
-    aiService.generateCheckpointSuggestions({ destination: trip.destination, days, budget, currency, travelers }),
+    aiService.generateTripPlan(ctx),
+    aiService.generateCheckpointSuggestions(ctx),
   ]);
 
   res.json({
@@ -490,7 +578,8 @@ export const tripPlannerStream = async (req: Request, res: Response) => {
       (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
     );
   } catch (err) {
-    res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to generate itinerary.' })}\n\n`);
+    endStreamWithError(res, undefined, err);
+    return;
   }
 
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -521,8 +610,9 @@ export const tripPlannerRefineStream = async (req: Request, res: Response) => {
       { currentItinerary: String(currentItinerary), instruction: String(instruction) },
       (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
     );
-  } catch {
-    res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to refine itinerary.' })}\n\n`);
+  } catch (err) {
+    endStreamWithError(res, undefined, err);
+    return;
   }
 
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
@@ -534,7 +624,7 @@ export const tripPlannerRefineStream = async (req: Request, res: Response) => {
  * SSE — streams itinerary markdown, then emits a "checkpoints" event with JSON suggestions.
  */
 export const tripPlannerForTripStream = async (req: Request, res: Response) => {
-  const { tripId } = req.body;
+  const { tripId, prompt, only } = req.body;
   const userId = req.user!.id as string;
 
   if (!tripId) {
@@ -542,26 +632,15 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
     return;
   }
 
-  const member = await prisma.tripMember.findFirst({ where: { tripId, userId } });
-  if (!member) {
-    res.status(403).json({ success: false, error: { message: 'You are not a member of this trip' } });
+  let ctx: TripPlanContext;
+  try {
+    ctx = await loadTripPlanContext(tripId, userId, prompt);
+  } catch (err) {
+    const status = err instanceof AppError ? err.statusCode : 500;
+    const message = err instanceof AppError ? err.message : 'Failed to load trip';
+    res.status(status).json({ success: false, error: { message } });
     return;
   }
-
-  const trip = await prisma.trip.findUnique({ where: { id: tripId }, include: { members: true } });
-  if (!trip) {
-    res.status(404).json({ success: false, error: { message: 'Trip not found' } });
-    return;
-  }
-  if (!trip.destination) {
-    res.status(400).json({ success: false, error: { message: 'Trip has no destination set' } });
-    return;
-  }
-
-  const days = Math.max(1, Math.ceil((trip.endDate.getTime() - trip.startDate.getTime()) / (1000 * 60 * 60 * 24)));
-  const budget = trip.budget ?? 1000;
-  const currency = trip.budgetCurrency;
-  const travelers = trip.members.length;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
@@ -573,20 +652,31 @@ export const tripPlannerForTripStream = async (req: Request, res: Response) => {
   // Stream the itinerary first, then generate checkpoints sequentially.
   // Running both in parallel hits Gemini's rate limit (15 RPM on the free tier),
   // causing the checkpoint call to fail silently and return an empty array.
-  try {
-    await aiService.generateTripPlanStream(
-      { destination: trip.destination, days, budget, currency, travelers },
-      (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
-    );
-  } catch {
-    res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\nFailed to generate itinerary.' })}\n\n`);
+  // `only: 'checkpoints'` re-runs just the checkpoint step — used to retry after that
+  // step failed, without regenerating (and changing) an itinerary the user already has.
+  if (only !== 'checkpoints') {
+    try {
+      await aiService.generateTripPlanStream(
+        ctx,
+        (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
+      );
+    } catch (err) {
+      endStreamWithError(res, 'itinerary', err);
+      return;
+    }
   }
 
   // Signal that itinerary streaming is done so the client can advance its step indicator
   // before we begin the (slower) checkpoint generation call.
   res.write(`data: ${JSON.stringify({ type: 'itinerary_complete' })}\n\n`);
 
-  const checkpoints = await aiService.generateCheckpointSuggestions({ destination: trip.destination, days, budget, currency, travelers });
+  let checkpoints: aiService.CheckpointSuggestion[];
+  try {
+    checkpoints = await aiService.generateCheckpointSuggestions(ctx);
+  } catch (err) {
+    endStreamWithError(res, 'checkpoints', err);
+    return;
+  }
   res.write(`data: ${JSON.stringify({ type: 'checkpoints', data: checkpoints })}\n\n`);
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);
   res.end();
@@ -679,8 +769,9 @@ export const generateNoteContentStream = async (req: Request, res: Response) => 
       { context, prompt },
       (text) => res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`)
     );
-  } catch {
-    res.write(`data: ${JSON.stringify({ type: 'chunk', text: '\n\n_Unable to generate content right now. Please try again._' })}\n\n`);
+  } catch (err) {
+    endStreamWithError(res, undefined, err);
+    return;
   }
 
   res.write(`data: ${JSON.stringify({ type: 'done' })}\n\n`);

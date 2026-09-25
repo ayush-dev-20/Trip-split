@@ -15,6 +15,8 @@ import {
   useDeleteDayCheckpoints,
 } from '@/hooks/useCheckpoints';
 import { aiService } from '@/services/aiService';
+import { getAIError } from '@/lib/aiError';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
 import { useAuthStore } from '@/stores/authStore';
 import { PageLoader } from '@/components/ui/LoadingSpinner';
 import ConfirmDialog from '@/components/ui/ConfirmDialog';
@@ -42,9 +44,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -487,7 +492,12 @@ export default function TripDetailPage() {
   const [deleteAllCheckpointsOpen, setDeleteAllCheckpointsOpen] = useState(false);
   const [deleteDayOpen, setDeleteDayOpen] = useState<number | null>(null);
   const [planOpen, setPlanOpen] = useState(false);
+  const [planPromptOpen, setPlanPromptOpen] = useState(false);
+  const [planPrompt, setPlanPrompt] = useState('');
   const [planStage, setPlanStage] = useState<'streaming' | 'checkpoints' | null>(null);
+  // Which step failed ('checkpoints' retries keep the itinerary already on screen) and how to retry it.
+  const [planError, setPlanError] = useState<{ message: string; retryable: boolean; stage: 'itinerary' | 'checkpoints' } | null>(null);
+  const lastPlanPromptRef = useRef<string | undefined>(undefined);
   const [itinerary, setItinerary] = useState('');
   const [suggestions, setSuggestions] = useState<SuggestedCheckpoint[]>([]);
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<number>>(new Set());
@@ -561,14 +571,26 @@ export default function TripDetailPage() {
     setTimeout(() => setCopiedInvite(false), 2000);
   };
 
-  const handlePlanItinerary = async () => {
-    setPlanStage('streaming');
-    setItinerary('');
+  const openPlanPrompt = () => {
+    setPlanPrompt('');
+    setPlanPromptOpen(true);
+  };
+
+  const handlePlanItinerary = async (prompt?: string, only?: 'checkpoints') => {
+    lastPlanPromptRef.current = prompt;
+    setPlanError(null);
     setPlanOpen(true);
     setSuggestions([]);
+    if (only === 'checkpoints') {
+      // Retrying just the checkpoint step — keep the itinerary the user already has.
+      setPlanStage('checkpoints');
+    } else {
+      setPlanStage('streaming');
+      setItinerary('');
+    }
     try {
       await aiService.planForTripStream(
-        tripId!,
+        { tripId: tripId!, prompt, only },
         (chunk) => setItinerary((prev) => prev + chunk),
         (cps) => {
           setSuggestions(cps);
@@ -577,8 +599,15 @@ export default function TripDetailPage() {
         () => setPlanStage(null),
         () => setPlanStage('checkpoints'),
       );
-    } catch {
-      setItinerary('Failed to generate itinerary. Please try again.');
+    } catch (err) {
+      const info = getAIError(err, only === 'checkpoints'
+        ? "Couldn't generate checkpoint suggestions. Please try again."
+        : "Couldn't generate the itinerary. Please try again.");
+      setPlanError({
+        message: info.message,
+        retryable: info.retryable,
+        stage: only === 'checkpoints' || info.stage === 'checkpoints' ? 'checkpoints' : 'itinerary',
+      });
       setPlanStage(null);
     }
   };
@@ -1006,6 +1035,12 @@ ${content}
           }
           action={
             <div className="flex items-center gap-1">
+              {trip.destination && checkpoints.length > 0 && (
+                <Button variant="ghost" size="sm" onClick={openPlanPrompt} disabled={planStage !== null}>
+                  {planStage !== null ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                  <span className="hidden sm:inline">Suggest with AI</span>
+                </Button>
+              )}
               <Button variant="ghost" size="sm" onClick={() => openCpForm(maxDay + 1, `Add to Day ${maxDay + 1}`)}>
                 <Plus className="h-3.5 w-3.5" /> Add
               </Button>
@@ -1039,7 +1074,7 @@ ${content}
             description="Plan your trip with destinations, activities, and stops."
             action={
               trip.destination && (
-                <Button variant="outline" onClick={handlePlanItinerary} disabled={planStage !== null}>
+                <Button variant="outline" onClick={openPlanPrompt} disabled={planStage !== null}>
                   {planStage !== null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
                   {planStage !== null ? 'Generating…' : 'Generate with AI'}
                 </Button>
@@ -1164,6 +1199,53 @@ ${content}
         )}
       </section>
 
+      {/* ── AI prompt — optional steer before generating ─────── */}
+      <Dialog open={planPromptOpen} onOpenChange={setPlanPromptOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" /> Plan with AI
+            </DialogTitle>
+            <DialogDescription>
+              We already use your destination, dates, budget, group size
+              {checkpoints.length > 0 ? ' and the checkpoints you\'ve planned so far' : ''}. Tell us what you want out of this trip to tailor the suggestions.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setPlanPromptOpen(false);
+              handlePlanItinerary(planPrompt.trim() || undefined);
+            }}
+            className="space-y-4"
+          >
+            <div className="space-y-2">
+              <Label htmlFor="ai-plan-prompt">Anything specific you want?</Label>
+              <Textarea
+                id="ai-plan-prompt"
+                value={planPrompt}
+                onChange={(e) => setPlanPrompt(e.target.value)}
+                maxLength={500}
+                placeholder="e.g. focus on street food and temples, keep Day 3 free, travelling with elderly parents so avoid long walks…"
+                className="min-h-[100px] resize-none"
+                autoFocus
+              />
+              <p className="text-xs text-muted-foreground">
+                Leave this blank for a balanced plan across every day.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              <Button type="button" variant="outline" onClick={() => setPlanPromptOpen(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button type="submit" disabled={planStage !== null} className="flex-1">
+                <Sparkles className="h-4 w-4" /> Generate
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
       {/* ── AI Itinerary Dialog ──────────────────────────────── */}
       <Dialog open={planOpen} onOpenChange={setPlanOpen}>
         <DialogContent className="max-w-3xl flex flex-col gap-0 p-0" style={{ maxHeight: '85vh' }}>
@@ -1234,6 +1316,22 @@ ${content}
               </Card>
             )}
 
+            {/* Failure — retry re-runs only the step that failed */}
+            {planError && planStage === null && (
+              <AIErrorNotice
+                message={
+                  planError.stage === 'itinerary' && itinerary
+                    ? 'The itinerary was interrupted before it finished. Try again for a complete plan.'
+                    : planError.message
+                }
+                onRetry={
+                  planError.retryable
+                    ? () => handlePlanItinerary(lastPlanPromptRef.current, planError.stage === 'checkpoints' ? 'checkpoints' : undefined)
+                    : undefined
+                }
+              />
+            )}
+
             {/* Suggested Checkpoints */}
             {suggestions.length > 0 && (
               <div>
@@ -1284,7 +1382,7 @@ ${content}
               </Button>
 
               {/* Download buttons — appear once generation is fully done */}
-              {itinerary && planStage === null && (
+              {itinerary && planStage === null && planError?.stage !== 'itinerary' && (
                 <div className="flex items-center gap-2 ml-auto">
                   <Button variant="outline" size="sm" onClick={downloadItineraryAsPdf}>
                     <Printer className="h-3.5 w-3.5" /> PDF
@@ -1393,6 +1491,7 @@ ${content}
       <CheckpointFormDialog
         open={cpFormOpen !== null}
         onOpenChange={(open) => { if (!open) setCpFormOpen(null); }}
+        tripId={tripId}
         defaultDay={cpFormOpen?.defaultDay ?? null}
         availableDays={availableDays}
         title={cpFormOpen?.title ?? 'Add Checkpoint'}
@@ -1404,6 +1503,7 @@ ${content}
       <CheckpointFormDialog
         open={editingCp !== null}
         onOpenChange={(open) => { if (!open) setEditingCp(null); }}
+        tripId={tripId}
         availableDays={availableDays}
         title="Edit Checkpoint"
         initialValues={editingCp ? {

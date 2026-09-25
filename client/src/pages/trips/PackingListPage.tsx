@@ -20,6 +20,8 @@ import {
   useTogglePackingItem, useUpdatePackingItem, useDeletePackingItem, useClearPackingItems,
 } from '@/hooks/usePackingItems';
 import { cn } from '@/lib/utils';
+import { getAIError } from '@/lib/aiError';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
 import type { PackingItem } from '@/types';
 
 export default function PackingListPage() {
@@ -36,7 +38,8 @@ export default function PackingListPage() {
 
   const [newItem, setNewItem] = useState('');
   const [confirmClearOpen, setConfirmClearOpen] = useState(false);
-  const [generateError, setGenerateError] = useState<string | null>(null);
+  const [generateError, setGenerateError] = useState<{ message: string; retryable: boolean } | null>(null);
+  const lastPromptRef = useRef<string | undefined>(undefined);
   const [promptDialogOpen, setPromptDialogOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
 
@@ -60,20 +63,27 @@ export default function PackingListPage() {
     setPromptDialogOpen(true);
   };
 
-  const handleGenerate = (e: React.FormEvent) => {
-    e.preventDefault();
+  const runGenerate = (prompt?: string) => {
+    lastPromptRef.current = prompt;
     setPromptDialogOpen(false);
     setGenerateError(null);
-    generate.mutate(aiPrompt.trim() || undefined, {
+    generate.mutate(prompt, {
       onError: (err) => {
+        const info = getAIError(err, 'Could not generate a packing list right now. Please try again.');
         const code = (err as { response?: { data?: { error?: { code?: string } } } })?.response?.data?.error?.code;
-        setGenerateError(
-          code === 'NO_DESTINATION'
+        setGenerateError({
+          message: code === 'NO_DESTINATION'
             ? 'This trip has no destination set — add one to generate a packing list.'
-            : 'Could not generate a packing list right now. Please try again.'
-        );
+            : info.message,
+          retryable: info.retryable,
+        });
       },
     });
+  };
+
+  const handleGenerate = (e: React.FormEvent) => {
+    e.preventDefault();
+    runGenerate(aiPrompt.trim() || undefined);
   };
 
   const handleAddItem = (e: React.FormEvent) => {
@@ -141,9 +151,11 @@ export default function PackingListPage() {
       )}
 
       {generateError && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-          <p className="text-sm text-destructive">{generateError}</p>
-        </div>
+        <AIErrorNotice
+          message={generateError.message}
+          onRetry={generateError.retryable ? () => runGenerate(lastPromptRef.current) : undefined}
+          retrying={generate.isPending}
+        />
       )}
 
       {isLoading ? (

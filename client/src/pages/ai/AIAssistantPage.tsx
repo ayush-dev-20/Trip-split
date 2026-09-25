@@ -1,6 +1,8 @@
 import { useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { aiService } from '@/services/aiService';
+import { getAIError, type AIErrorInfo } from '@/lib/aiError';
+import AIErrorNotice from '@/components/ai/AIErrorNotice';
 import { useCreateTrip } from '@/hooks/useTrips';
 import { checkpointService } from '@/services/checkpointService';
 import ReactMarkdown from 'react-markdown';
@@ -28,30 +30,41 @@ export default function AIAssistantPage() {
   const [plannerText, setPlannerText] = useState('');
   const plannerRef = useRef<HTMLDivElement>(null);
 
+  const [planError, setPlanError] = useState<AIErrorInfo | null>(null);
+
   const [refineMessages, setRefineMessages] = useState<{ instruction: string }[]>([]);
   const [refineInput, setRefineInput] = useState('');
   const [refining, setRefining] = useState(false);
+  const [refineError, setRefineError] = useState<(AIErrorInfo & { instruction: string }) | null>(null);
 
-  const handleRefine = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!refineInput.trim() || refining) return;
-    const instruction = refineInput.trim();
-    setRefineMessages((prev) => [...prev, { instruction }]);
-    setRefineInput('');
+  const runRefine = async (instruction: string) => {
+    const previous = plannerText;
+    setRefineError(null);
     setRefining(true);
     setPlannerStreaming(true);
     setPlannerText('');
     try {
       await aiService.tripPlannerRefineStream(
-        { currentItinerary: plannerText, instruction },
+        { currentItinerary: previous, instruction },
         (chunk) => setPlannerText((prev) => prev + chunk)
       );
-    } catch {
-      setPlannerText('Failed to refine itinerary. Please try again.');
+      setRefineMessages((prev) => [...prev, { instruction }]);
+    } catch (err) {
+      // A failed refinement must never cost the user the itinerary they already had.
+      setPlannerText(previous);
+      setRefineError({ ...getAIError(err, "Couldn't apply that change. Please try again."), instruction });
     } finally {
       setRefining(false);
       setPlannerStreaming(false);
     }
+  };
+
+  const handleRefine = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!refineInput.trim() || refining) return;
+    const instruction = refineInput.trim();
+    setRefineInput('');
+    runRefine(instruction);
   };
 
   const navigate = useNavigate();
@@ -59,44 +72,66 @@ export default function AIAssistantPage() {
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [saveTripName, setSaveTripName] = useState('');
   const [savingTrip, setSavingTrip] = useState(false);
+  // Once the trip exists, a retry must only redo the checkpoints — never create a second trip.
+  const [savedTripId, setSavedTripId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<AIErrorInfo | null>(null);
 
   const openSaveModal = () => {
     setSaveTripName(plannerForm.destination);
+    setSavedTripId(null);
+    setSaveError(null);
     setSaveModalOpen(true);
   };
 
   const handleSaveAsTrip = async () => {
     if (!saveTripName.trim()) return;
     setSavingTrip(true);
+    // saveError stays visible while retrying (its button shows a spinner) and is replaced on the next failure.
     try {
       const days = Number(plannerForm.days);
-      const start = new Date(plannerForm.startDate || new Date().toISOString().split('T')[0]);
-      const end = new Date(start);
-      end.setDate(end.getDate() + days);
+      let tripId = savedTripId;
 
-      const trip = await createTrip.mutateAsync({
-        name: saveTripName.trim(),
-        destination: plannerForm.destination,
-        startDate: start.toISOString(),
-        endDate: end.toISOString(),
-        budget: Number(plannerForm.budget),
-        budgetCurrency: plannerForm.currency,
-      });
-
-      const checkpoints = await aiService.planCheckpoints({
-        destination: plannerForm.destination,
-        days,
-        budget: Number(plannerForm.budget),
-        currency: plannerForm.currency,
-        travelers: Number(plannerForm.travelers),
-      });
-
-      if (checkpoints.length > 0) {
-        await checkpointService.createBulk(trip.id, checkpoints);
+      if (!tripId) {
+        const start = new Date(plannerForm.startDate || new Date().toISOString().split('T')[0]);
+        const end = new Date(start);
+        end.setDate(end.getDate() + days);
+        try {
+          const trip = await createTrip.mutateAsync({
+            name: saveTripName.trim(),
+            destination: plannerForm.destination,
+            startDate: start.toISOString(),
+            endDate: end.toISOString(),
+            budget: Number(plannerForm.budget),
+            budgetCurrency: plannerForm.currency,
+          });
+          tripId = trip.id;
+          setSavedTripId(trip.id);
+        } catch (err) {
+          setSaveError(getAIError(err, "Couldn't create the trip. Please try again."));
+          return;
+        }
       }
 
+      try {
+        const checkpoints = await aiService.planCheckpoints({
+          destination: plannerForm.destination,
+          days,
+          budget: Number(plannerForm.budget),
+          currency: plannerForm.currency,
+          travelers: Number(plannerForm.travelers),
+        });
+        if (checkpoints.length > 0) {
+          await checkpointService.createBulk(tripId, checkpoints);
+        }
+      } catch (err) {
+        const info = getAIError(err, "Couldn't generate checkpoints. Please try again.");
+        setSaveError({ ...info, message: `Your trip was created, but ${info.message.charAt(0).toLowerCase()}${info.message.slice(1)}` });
+        return;
+      }
+
+      setSaveError(null);
       setSaveModalOpen(false);
-      navigate(`/trips/${trip.id}`);
+      navigate(`/trips/${tripId}`);
     } finally {
       setSavingTrip(false);
     }
@@ -147,6 +182,8 @@ ${content}
 
   const handleGeneratePlan = async () => {
     if (!plannerForm.destination) return;
+    setPlanError(null);
+    setRefineError(null);
     setPlannerStreaming(true);
     setPlannerText('');
     try {
@@ -160,8 +197,8 @@ ${content}
         },
         (chunk) => setPlannerText((prev) => prev + chunk)
       );
-    } catch {
-      setPlannerText('Failed to generate itinerary. Please try again.');
+    } catch (err) {
+      setPlanError(getAIError(err, "Couldn't generate the itinerary. Please try again."));
     } finally {
       setPlannerStreaming(false);
     }
@@ -242,6 +279,13 @@ ${content}
                 }
               </Button>
 
+              {planError && !plannerStreaming && (
+                <AIErrorNotice
+                  message={plannerText ? 'The itinerary was interrupted before it finished. Try again for a complete plan.' : planError.message}
+                  onRetry={planError.retryable ? handleGeneratePlan : undefined}
+                />
+              )}
+
               {/* Loading banner — before first token arrives */}
               {plannerStreaming && !plannerText && (
                 <div className="flex items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3">
@@ -263,7 +307,7 @@ ${content}
                       <Loader2 className="h-3.5 w-3.5 animate-spin text-primary shrink-0" />
                       <span className="text-muted-foreground">Writing itinerary…</span>
                     </div>
-                  ) : (
+                  ) : planError ? null : (
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <CheckCircle2 className="h-4 w-4 text-green-500 shrink-0" />
@@ -325,10 +369,17 @@ ${content}
                   </Card>
 
                   {/* Refinement chat — only once the itinerary has finished streaming */}
-                  {!plannerStreaming && (
+                  {!plannerStreaming && !planError && (
                     <Card>
                       <CardContent className="p-4 space-y-3">
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ask for changes</p>
+                        {refineError && (
+                          <AIErrorNotice
+                            message={`Couldn't apply "${refineError.instruction}". ${refineError.message}`}
+                            onRetry={refineError.retryable ? () => runRefine(refineError.instruction) : undefined}
+                            retrying={refining}
+                          />
+                        )}
                         {refineMessages.length > 0 && (
                           <ul className="space-y-1.5">
                             {refineMessages.map((m, i) => (
@@ -352,7 +403,7 @@ ${content}
                   )}
 
                   {/* Download row below content — repeated for easy access after scrolling */}
-                  {!plannerStreaming && (
+                  {!plannerStreaming && !planError && (
                     <div className="flex justify-end gap-2">
                       <Button variant="outline" size="sm" onClick={downloadPlanAsPdf}>
                         <Printer className="h-3.5 w-3.5" /> Download PDF
@@ -379,9 +430,27 @@ ${content}
           <p className="text-xs text-muted-foreground">
             Start date, destination, budget, and currency are taken from the form above. We'll also generate suggested checkpoints for this trip.
           </p>
-          <Button onClick={handleSaveAsTrip} disabled={savingTrip || !saveTripName.trim()} className="w-full">
-            {savingTrip ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : 'Create Trip'}
-          </Button>
+          {saveError && (
+            <AIErrorNotice
+              message={saveError.message}
+              onRetry={saveError.retryable ? handleSaveAsTrip : undefined}
+              retrying={savingTrip}
+            />
+          )}
+          {savedTripId ? (
+            <Button
+              variant="outline"
+              onClick={() => { setSaveModalOpen(false); navigate(`/trips/${savedTripId}`); }}
+              disabled={savingTrip}
+              className="w-full"
+            >
+              Skip checkpoints &amp; open trip
+            </Button>
+          ) : (
+            <Button onClick={handleSaveAsTrip} disabled={savingTrip || !saveTripName.trim()} className="w-full">
+              {savingTrip ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving…</> : 'Create Trip'}
+            </Button>
+          )}
         </div>
       </Modal>
     </div>
